@@ -1,0 +1,20 @@
+# Terraform state — always stored remotely in S3, never committed
+*.tfstate
+*.tfstate.backup
+
+# Terraform working directories
+**/.terraform/
+**/.terraform.lock.hcl
+
+# Variable files contain real values — never commit
+terraform.tfvars
+
+# Lambda build artefacts generated at plan/apply time
+**/.lambda_build/
+
+# Invocation response files
+response.json
+
+# OS noise
+.DS_Store
+Thumbs.db

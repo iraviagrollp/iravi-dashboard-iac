@@ -1,0 +1,238 @@
+classDiagram
+    direction TB
+
+    %% ── Dimensions ──────────────────────────────────────────
+
+    class dim_customers {
+        <<Dimension>>
+        +int           id              PK
+        +String        customer_name   UK
+        +String        customer_code
+        +String        parent_group
+        +String        contact_person
+        +String        gstn
+        +String        gst_reg_type
+        +String        city
+        +String        state
+        +String        pin
+        +String        mobile_no
+        +String        alt_mobile_no
+        +String        email
+        +String        pan
+        +String        licence_no
+        +DateTime      ingested_at
+    }
+
+    class dim_packings {
+        <<Dimension>>
+        +int           id                  PK
+        +String        packing_description UK
+        +DateTime      ingested_at
+    }
+
+    %% ── Fact Tables ─────────────────────────────────────────
+
+    class fact_sales {
+        <<Fact>>
+        +int           id               PK
+        +Date          transaction_date
+        +String        voucher_no       UK
+        +String        branch
+        +String        party_name
+        +String        party_gstn
+        +Decimal       qty
+        +Decimal       gross
+        +Decimal       discount
+        +Decimal       assessable_value
+        +Decimal       cgst
+        +Decimal       sgst
+        +Decimal       igst
+        +Decimal       net
+        +Decimal       bill_value
+        +DateTime      ingested_at
+    }
+
+    class fact_sales_returns {
+        <<Fact>>
+        +int           id               PK
+        +Date          transaction_date
+        +String        voucher_no       UK
+        +String        branch
+        +String        location
+        +String        storage_bin
+        +String        party_name
+        +String        party_gstn
+        +String        ref_bill_no
+        +Date          ref_bill_date
+        +Decimal       qty
+        +Decimal       gross
+        +Decimal       discount
+        +Decimal       mrp_amount
+        +Decimal       gmd
+        +Decimal       assessable_value
+        +Decimal       cgst
+        +Decimal       sgst
+        +Decimal       igst
+        +Decimal       net
+        +Decimal       charges
+        +Decimal       charges_cgst
+        +Decimal       charges_sgst
+        +Decimal       charges_igst
+        +Decimal       deductions
+        +Decimal       adjustments
+        +Decimal       roundoff
+        +Decimal       bill_value
+        +String        remarks
+        +DateTime      ingested_at
+    }
+
+    class fact_purchases {
+        <<Fact>>
+        +int           id               PK
+        +Date          transaction_date
+        +String        voucher_no       UK
+        +String        branch
+        +String        party_name
+        +String        party_gstn
+        +Date          ref_bill_date
+        +Decimal       qty
+        +Decimal       gross
+        +Decimal       cgst
+        +Decimal       sgst
+        +Decimal       igst
+        +Decimal       net
+        +Decimal       charges
+        +Decimal       charges_cgst
+        +Decimal       charges_sgst
+        +Decimal       charges_igst
+        +Decimal       roundoff
+        +Decimal       bill_value
+        +DateTime      ingested_at
+    }
+
+    class fact_purchase_returns {
+        <<Fact>>
+        +int           id               PK
+        +Date          transaction_date
+        +String        voucher_no       UK
+        +String        branch
+        +String        party_name
+        +Date          ref_bill_date
+        +String        product_name     UK
+        +Decimal       qty
+        +Decimal       rate
+        +Decimal       gross
+        +Decimal       disc_rate
+        +Decimal       discount
+        +Decimal       mrp
+        +Decimal       gmd
+        +Decimal       assessable_value
+        +Decimal       cgst_rate
+        +Decimal       cgst
+        +Decimal       sgst_rate
+        +Decimal       sgst
+        +Decimal       igst_rate
+        +Decimal       igst
+        +Decimal       net
+        +String        barcodes
+        +String        narration
+        +DateTime      ingested_at
+    }
+
+    class fact_expenses {
+        <<Fact>>
+        +int           id               PK
+        +Date          transaction_date
+        +String        voucher_no       UK
+        +String        branch
+        +String        party_name
+        +String        party_gstn
+        +Date          ref_bill_date
+        +Decimal       qty
+        +Decimal       gross
+        +Decimal       cgst
+        +Decimal       sgst
+        +Decimal       igst
+        +Decimal       net
+        +Decimal       charges
+        +Decimal       charges_cgst
+        +Decimal       charges_sgst
+        +Decimal       charges_igst
+        +Decimal       roundoff
+        +Decimal       bill_value
+        +DateTime      ingested_at
+    }
+
+    %% ── Snapshot Tables ─────────────────────────────────────
+
+    class snapshot_stock {
+        <<Snapshot>>
+        +int           id                    PK
+        +Date          snapshot_date
+        +int           s_no
+        +String        product_brand_name
+        +String        product_chemical_name
+        +int           packing_id            FK
+        +Decimal       qty_ap_current
+        +Decimal       qty_ts_current
+        +Decimal       qty_ap_previous
+        +Decimal       qty_ts_previous
+        +Decimal       total_qty_current
+        +Decimal       total_qty_previous
+        +Decimal       rate
+        +Decimal       opening_value
+        +Decimal       closing_value
+        +DateTime      ingested_at
+    }
+
+    class snapshot_stock_margin {
+        <<Snapshot>>
+        +int           id                 PK
+        +Date          snapshot_date
+        +String        product_brand_name
+        +int           packing_id         FK
+        +Decimal       cost_price
+        +Decimal       margin_pct
+        +Decimal       nrv_price
+        +Decimal       nrv
+        +DateTime      ingested_at
+    }
+
+    class snapshot_customer_balances {
+        <<Snapshot>>
+        +int           id             PK
+        +Date          snapshot_date
+        +String        branch
+        +String        customer_name
+        +String        customer_code
+        +String        city
+        +Decimal       debit
+        +Decimal       credit
+        +Decimal       balance_amount
+        +String        balance_type
+        +DateTime      ingested_at
+    }
+
+    %% ── Audit ───────────────────────────────────────────────
+
+    class etl_runs {
+        <<Audit>>
+        +int           id              PK
+        +Date          run_date        UK
+        +DateTime      started_at
+        +DateTime      completed_at
+        +String        status
+        +JSON          files_processed
+        +String        error_message
+    }
+
+    %% ── Relationships ───────────────────────────────────────
+
+    %% Hard FK constraints
+    dim_packings "1" --> "0..*" snapshot_stock         : packing_id
+    dim_packings "1" --> "0..*" snapshot_stock_margin  : packing_id
+
+    %% Soft joins via party_name / customer_name (no DB-level FK)
+    dim_customers "1" ..> "0..*" fact_sales                    : party_name
+    dim_customers "1" ..> "0..*" fact_sales_returns             : party_name
+    dim_customers "1" ..> "0..*" snapshot_customer_balances     : customer_name

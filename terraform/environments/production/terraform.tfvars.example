@@ -1,0 +1,9 @@
+# Copy this file to terraform.tfvars and fill in real values.
+# terraform.tfvars is git-ignored — never commit it.
+
+aws_region   = "ap-south-1"
+environment  = "production"
+alert_email  = "your-email@example.com"
+
+# Adjust instance class if needed
+db_instance_class = "db.t3.small"
