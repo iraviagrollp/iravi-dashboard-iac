@@ -10,8 +10,8 @@ Region: `ap-south-1` (Mumbai).
 | Layer | Resource |
 |---|---|
 | Network | VPC, 2 public + 2 private subnets, Internet Gateway, NAT Gateway |
-| Security | 3 security groups (Lambda, RDS, ElastiCache) with scoped rules |
-| VPC Endpoints | S3 gateway (free), Secrets Manager interface |
+| Security | 4 security groups (Lambda, RDS, ElastiCache, VPC Endpoints) with scoped rules |
+| VPC Endpoints | S3 gateway (free), Secrets Manager interface (dedicated endpoint SG) |
 | Database | RDS PostgreSQL 16 — `db.t3.small`, 20 GB gp3, encrypted |
 | Credentials | AWS Secrets Manager secret with DB host/port/name/user/password |
 | Monitoring | SNS alert topic + 5 CloudWatch alarms (CPU, storage, connections, memory, write latency) |
@@ -162,6 +162,8 @@ terraform apply
 
 `terraform apply` takes **8–12 minutes**, most of which is waiting for RDS to become available.
 
+> **Expected resource count:** ~27 resources. The extra 2 vs. earlier estimates are the dedicated VPC endpoint security group and its ingress rule.
+
 When it completes, note the outputs — you will need them for later pipeline components:
 
 ```
@@ -282,8 +284,11 @@ terraform destroy
 **RDS creation times out**
 → RDS can take up to 15 minutes on first provision. Run `terraform apply` again — it will resume from where it left off.
 
-**Schema runner Lambda errors with connection timeout**
+**Schema runner Lambda errors with connection timeout (RDS)**
 → The Lambda is in the VPC's private subnets. Confirm `sg_lambda_id` allows outbound TCP 5432 to `sg_rds_id`. Check `terraform output` to verify SG IDs match what's in the Lambda config.
+
+**Lambda times out reaching Secrets Manager**
+→ The Secrets Manager Interface endpoint requires its own SG (`sg-vpc-endpoints`) with an inbound 443 rule from `sg_lambda_id`. Verify the `vpc_endpoints` SG exists and its ingress rule references the Lambda SG.
 
 **Schema runner errors with `relation already exists`**
 → The schema was already applied. This is safe — re-running is idempotent for `CREATE TABLE IF NOT EXISTS`. If you used plain `CREATE TABLE`, wrap DDL statements with `IF NOT EXISTS`.

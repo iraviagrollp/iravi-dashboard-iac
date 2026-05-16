@@ -7,6 +7,10 @@
 - Keep the **What Is Next** section current: remove completed items, add newly discovered tasks.
 - If a technical decision changes (schema, infra, architecture), update the relevant section here immediately.
 - This file is the single source of truth for project state across sessions — treat it as such.
+- **After every code change** — no matter how small — update both this file and `README.md` before closing the task:
+  - CLAUDE.md: reflect any architectural decisions, new resources, security rules, or design constraints introduced by the change
+  - README.md: update "What This Provisions", expected resource counts, troubleshooting entries, or deployment steps affected by the change
+  - Never consider a task complete until both files are consistent with the current state of the code
 
 ---
 
@@ -185,6 +189,17 @@ Target: Amazon RDS PostgreSQL 16 — database name `iravi_dashboard`
 
 **Region:** `ap-south-1` (Mumbai)
 
+### Security groups
+
+| SG | Purpose |
+|---|---|
+| `sg_lambda_id` | Attached to all Lambda functions |
+| `sg_rds_id` | RDS — inbound from Lambda SG only |
+| `sg_elasticache_id` | ElastiCache — inbound from Lambda SG only |
+| `sg_vpc_endpoints` | VPC Interface endpoint ENIs — inbound 443 from Lambda SG only |
+
+**Important:** Always use `sg_vpc_endpoints` (not `sg_lambda_id`) as the `security_group_ids` for any Interface VPC endpoint. Interface endpoint ENIs need an inbound rule; `sg_lambda_id` has none.
+
 ### Terraform outputs needed downstream
 After `terraform apply`, capture these — they are inputs to every Lambda built next:
 ```
@@ -280,6 +295,7 @@ Every run writes a row to `etl_runs`: `run_date`, `started_at`, `completed_at`, 
 - [x] Terraform — SNS + CloudWatch alarms
 - [x] Terraform — Schema Runner Lambda (one-time DDL apply)
 - [x] IaC README with full deployment runbook
+- [x] Security review — VPC endpoint SG bug fixed, IAM scoped, SG descriptions added
 
 ## What Is Next (build in this order)
 
