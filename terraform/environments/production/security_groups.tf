@@ -78,3 +78,25 @@ resource "aws_security_group_rule" "elasticache_from_lambda" {
   security_group_id        = aws_security_group.elasticache.id
   source_security_group_id = aws_security_group.lambda.id
 }
+
+# ── VPC Interface Endpoints ───────────────────────────────────────────────────
+# Dedicated SG for Interface endpoint ENIs. The endpoint's SG evaluates inbound
+# traffic from clients — without an ingress rule here, Lambda's connection
+# attempts to the endpoint ENI are dropped even though Lambda has outbound 443.
+
+resource "aws_security_group" "vpc_endpoints" {
+  name        = "${var.project}-sg-vpc-endpoints"
+  description = "VPC Interface endpoint ENIs — inbound HTTPS from Lambda only"
+  vpc_id      = aws_vpc.main.id
+  tags        = { Name = "${var.project}-sg-vpc-endpoints" }
+}
+
+resource "aws_security_group_rule" "vpc_endpoints_from_lambda" {
+  type                     = "ingress"
+  description              = "HTTPS from Lambda"
+  from_port                = 443
+  to_port                  = 443
+  protocol                 = "tcp"
+  security_group_id        = aws_security_group.vpc_endpoints.id
+  source_security_group_id = aws_security_group.lambda.id
+}

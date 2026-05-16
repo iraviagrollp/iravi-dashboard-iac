@@ -60,7 +60,10 @@ resource "aws_iam_role_policy" "schema_runner" {
         Sid    = "CloudWatchLogs"
         Effect = "Allow"
         Action = ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"]
-        Resource = ["arn:aws:logs:*:*:*"]
+        Resource = [
+          "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/${var.project}-schema-runner",
+          "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/${var.project}-schema-runner:*",
+        ]
       },
       {
         Sid    = "VpcNetworking"

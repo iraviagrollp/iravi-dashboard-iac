@@ -19,7 +19,8 @@ output "sg_lambda_id" {
 }
 
 output "sg_rds_id" {
-  value = aws_security_group.rds.id
+  description = "RDS security group ID"
+  value       = aws_security_group.rds.id
 }
 
 output "sg_elasticache_id" {
