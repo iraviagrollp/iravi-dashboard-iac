@@ -276,6 +276,18 @@ terraform destroy
 
 ---
 
+## Prospective Cost Optimisations
+
+Parked decisions — do not act on these without explicit discussion. Revisit as usage grows.
+
+| # | Change | Est. Saving | Trigger |
+|---|---|---|---|
+| 1 | **VPC endpoints for CloudWatch Logs + SNS** | ~$5–10/mo | When ETL log volume grows or NAT costs are noticeable. Two interface endpoints (~$16/mo) eliminate NAT traffic for Lambda logs and alert publishes. |
+| 2 | **RDS Reserved Instance (1-year, no upfront)** | ~$8–9/mo | After 3–6 months of stable usage — confirm `db.t3.small` is the right size before committing. No code change; purchase via AWS console. |
+| 3 | **Lambda Graviton (arm64)** | ~10–20% on Lambda compute | After all Lambda functions (ETL, Redis Updater, API) are created and stable. One-line change per function: `architectures = ["arm64"]`. Apply as a batch across all functions at once. |
+
+---
+
 ## Troubleshooting
 
 **`terraform init` fails with backend error**

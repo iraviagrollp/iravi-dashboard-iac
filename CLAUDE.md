@@ -368,6 +368,19 @@ Every run writes a row to `etl_runs`: `run_date`, `started_at`, `completed_at`, 
 
 ---
 
+## Prospective Cost Saving Avenues
+
+Items confirmed as not worth doing now but worth revisiting as traffic and costs grow.
+Do not act on these without explicit discussion — they are parked here for reference.
+
+| # | Change | Estimated Saving | When to do it | Notes |
+|---|---|---|---|---|
+| 1 | **VPC endpoints for CloudWatch Logs + SNS** | ~$5–10/mo | When ETL log volume grows or NAT costs spike | Lambda logs and SNS publishes currently route through NAT Gateway. Two interface endpoints (~$16/mo combined) would eliminate that traffic. Pays for itself once log volume is meaningful. |
+| 2 | **RDS Reserved Instance (1-year, no upfront)** | ~$8–9/mo | After 3–6 months of stable usage — confirm instance size is right first | 30% discount on the DB compute cost. No code or infrastructure change — purchase via AWS console. Pointless to reserve before knowing if `t3.small` is the right size. |
+| 3 | **Lambda Graviton (arm64 runtime)** | ~10–20% on Lambda compute | After all Lambda functions are created and stable | One-line Terraform change per function: `architectures = ["arm64"]`. Python 3.12 supports arm64 natively. Do this as a batch change across all Lambdas once ETL, Redis Updater, and API functions exist. |
+
+---
+
 ## Data Freshness Contract
 
 Dashboard shows data **as of the previous evening's export (~8PM IST)**.

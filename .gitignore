@@ -15,6 +15,9 @@ terraform.tfvars
 # Invocation response files
 response.json
 
+# Local reference docs — not part of the repo
+design/
+
 # OS noise
 .DS_Store
 Thumbs.db
