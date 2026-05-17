@@ -62,3 +62,13 @@ variable "alert_email" {
   description = "Email address to receive pipeline and infrastructure alerts"
   type        = string
 }
+
+variable "bastion_key_name" {
+  description = "Name of the EC2 Key Pair for SSH access to the bastion host. Create it in AWS Console → EC2 → Key Pairs before applying."
+  type        = string
+}
+
+variable "bastion_allowed_cidr" {
+  description = "Your public IP in CIDR notation (e.g. 203.0.113.45/32). Only this IP can SSH into the bastion. Find your IP at https://ifconfig.me"
+  type        = string
+}
