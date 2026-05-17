@@ -296,8 +296,28 @@ Every run writes a row to `etl_runs`: `run_date`, `started_at`, `completed_at`, 
 - [x] Terraform — Schema Runner Lambda (one-time DDL apply)
 - [x] IaC README with full deployment runbook
 - [x] Security review — VPC endpoint SG bug fixed, IAM scoped, SG descriptions added
+- [x] GitHub Actions pipeline — Stage 1 (fmt + validate on PR, no AWS needed)
 
 ## What Is Next (build in this order)
+
+- [ ] **AWS Account + OIDC setup** — prerequisite for pipeline Stages 2 & 3
+  - Create AWS account
+  - Add OIDC identity provider for GitHub Actions in IAM
+  - Create `terraform-deployer` IAM role trusted by `iraviagrollp/IaC`
+  - Add `AWS_ROLE_ARN` secret to GitHub repo
+  - Uncomment Stage 2 (plan) in `.github/workflows/terraform.yml`
+
+- [ ] **GitHub Actions Stage 2 — Terraform Plan** (after AWS account + OIDC)
+  - Runs `terraform plan` on every PR
+  - Posts plan output as a PR comment for review before merge
+
+- [ ] **GitHub Actions Stage 3 — Terraform Apply** (after Stage 2 is stable)
+  - Runs `terraform apply` automatically on merge to main
+
+- [ ] **GitHub branch protection on `main`**
+  - Require PR before merging (no direct pushes)
+  - Require Stage 1 (validate) to pass before merge is allowed
+  - Settings → Branches → Add rule → `main`
 
 - [ ] **File Sync Agent** — Python script on FUSIL PRO server
   - Watch local folder for 8 files

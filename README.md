@@ -16,6 +16,47 @@ Region: `ap-south-1` (Mumbai).
 | Credentials | AWS Secrets Manager secret with DB host/port/name/user/password |
 | Monitoring | SNS alert topic + 5 CloudWatch alarms (CPU, storage, connections, memory, write latency) |
 | Schema Runner | One-time Lambda to apply `db/schema.sql` against RDS — reusable for future migrations |
+| CI/CD | GitHub Actions — fmt + validate on PR (Stage 1); plan + apply coming after AWS account setup |
+
+---
+
+## Git Workflow
+
+Never push directly to `main`. All changes go through a feature branch and PR.
+
+```bash
+# Start a new piece of work
+git checkout -b feature/add-elasticache
+
+# Make your changes, then push
+git add terraform/environments/production/elasticache.tf
+git commit -m "add ElastiCache Redis cluster"
+git push origin feature/add-elasticache
+
+# Open a PR on GitHub → pipeline runs automatically → review → merge
+```
+
+### What the pipeline checks on every PR
+
+| Stage | What it does | AWS needed? |
+|---|---|---|
+| Format | `terraform fmt --check` — fails if files aren't formatted | No |
+| Validate | `terraform validate` — catches syntax and config errors | No |
+| Plan *(coming soon)* | `terraform plan` — shows exactly what will change in AWS | Yes (OIDC) |
+
+### What happens on merge to `main`
+
+| Stage | What it does | AWS needed? |
+|---|---|---|
+| Apply *(coming soon)* | `terraform apply` — deploys changes to AWS | Yes (OIDC) |
+
+### Enabling branch protection on GitHub
+
+Go to **GitHub repo → Settings → Branches → Add rule**:
+- Branch name pattern: `main`
+- ✅ Require a pull request before merging
+- ✅ Require status checks to pass → select `Format & Validate`
+- ✅ Do not allow bypassing the above settings
 
 ---
 
