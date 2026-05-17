@@ -38,17 +38,20 @@ git push origin feature/add-elasticache
 
 ### What the pipeline checks on every PR
 
-| Stage | What it does | AWS needed? |
-|---|---|---|
-| Format | `terraform fmt --check` — fails if files aren't formatted | No |
-| Validate | `terraform validate` — catches syntax and config errors | No |
-| Plan *(coming soon)* | `terraform plan` — shows exactly what will change in AWS | Yes (OIDC) |
+| Stage | Status | What it does | AWS needed? |
+|---|---|---|---|
+| Format | ✅ Active | `terraform fmt --check -diff` — fails and shows exact diff if files aren't formatted | No |
+| Init | ✅ Active | `terraform init -backend=false` — verifies providers resolve | No |
+| Validate | ✅ Active | `terraform validate` — catches syntax and config errors | No |
+| Plan | 🔒 Commented out | `terraform plan` — shows exactly what will change in AWS, posted as PR comment | Yes (OIDC) |
 
 ### What happens on merge to `main`
 
-| Stage | What it does | AWS needed? |
-|---|---|---|
-| Apply *(coming soon)* | `terraform apply` — deploys changes to AWS | Yes (OIDC) |
+| Stage | Status | What it does | AWS needed? |
+|---|---|---|---|
+| Apply | 🔒 Commented out | `terraform apply` — deploys changes to AWS automatically | Yes (OIDC) |
+
+> Both commented-out stages are already written in `.github/workflows/terraform.yml` — they just need AWS credentials wired up and the comment blocks removed.
 
 ### Enabling branch protection on GitHub
 
@@ -57,6 +60,39 @@ Go to **GitHub repo → Settings → Branches → Add rule**:
 - ✅ Require a pull request before merging
 - ✅ Require status checks to pass → select `Format & Validate`
 - ✅ Do not allow bypassing the above settings
+
+### Enabling Plan + Apply (when AWS account is ready)
+
+**Step 1 — Run bootstrap** (creates S3 state bucket + DynamoDB lock):
+```bash
+cd terraform/bootstrap
+terraform init
+terraform apply
+# Note the state_bucket_name output — paste it into environments/production/main.tf
+```
+
+**Step 2 — Create OIDC provider in AWS IAM**
+- Console → IAM → Identity Providers → Add Provider
+- Type: `OpenID Connect`
+- URL: `https://token.actions.githubusercontent.com`
+- Audience: `sts.amazonaws.com`
+
+**Step 3 — Create IAM Role `terraform-deployer`**
+- Trusted entity: Web identity → select the GitHub OIDC provider above
+- Condition: `token.actions.githubusercontent.com:sub` = `repo:iraviagrollp/iravi-dashboard-iac:ref:refs/heads/main`
+- Permissions: `AdministratorAccess` (can be narrowed later)
+
+**Step 4 — Add secret to GitHub**
+- Repo → Settings → Secrets → New repository secret
+- Name: `AWS_ROLE_ARN`, Value: ARN of the `terraform-deployer` role
+
+**Step 5 — Uncomment Stage 2 in `.github/workflows/terraform.yml`**
+- Remove the `#` comment block around the `plan` job
+- Open a test PR — confirm the plan output appears as a PR comment
+
+**Step 6 — Uncomment Stage 3 once Stage 2 is confirmed**
+- Remove the `#` comment block around the `apply` job
+- First apply provisions all ~27 resources (takes 8–12 minutes)
 
 ---
 

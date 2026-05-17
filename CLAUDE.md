@@ -300,24 +300,35 @@ Every run writes a row to `etl_runs`: `run_date`, `started_at`, `completed_at`, 
 
 ## What Is Next (build in this order)
 
-- [ ] **AWS Account + OIDC setup** — prerequisite for pipeline Stages 2 & 3
-  - Create AWS account
-  - Add OIDC identity provider for GitHub Actions in IAM
-  - Create `terraform-deployer` IAM role trusted by `iraviagrollp/IaC`
-  - Add `AWS_ROLE_ARN` secret to GitHub repo
-  - Uncomment Stage 2 (plan) in `.github/workflows/terraform.yml`
-
-- [ ] **GitHub Actions Stage 2 — Terraform Plan** (after AWS account + OIDC)
-  - Runs `terraform plan` on every PR
-  - Posts plan output as a PR comment for review before merge
-
-- [ ] **GitHub Actions Stage 3 — Terraform Apply** (after Stage 2 is stable)
-  - Runs `terraform apply` automatically on merge to main
-
-- [ ] **GitHub branch protection on `main`**
-  - Require PR before merging (no direct pushes)
-  - Require Stage 1 (validate) to pass before merge is allowed
+- [ ] **GitHub branch protection on `main`** ← do this now, no AWS needed
   - Settings → Branches → Add rule → `main`
+  - ✅ Require a pull request before merging
+  - ✅ Require status checks to pass → select `Format & Validate`
+  - ✅ Do not allow bypassing the above settings
+
+- [ ] **AWS Account + OIDC setup** — prerequisite for pipeline Stages 2 & 3
+  - Create AWS account at https://aws.amazon.com
+  - Run bootstrap Terraform: `cd terraform/bootstrap && terraform init && terraform apply`
+    - This creates the S3 state bucket + DynamoDB lock table
+    - Note the output `state_bucket_name` and fill it into `terraform/environments/production/main.tf` backend block
+  - In AWS Console → IAM → Identity Providers → Add Provider:
+    - Type: OpenID Connect
+    - URL: `https://token.actions.githubusercontent.com`
+    - Audience: `sts.amazonaws.com`
+  - Create IAM Role `terraform-deployer`:
+    - Trusted entity: Web identity → select the GitHub OIDC provider
+    - Condition: `token.actions.githubusercontent.com:sub` = `repo:iraviagrollp/iravi-dashboard-iac:ref:refs/heads/main`
+    - Attach permissions: AdministratorAccess (narrow this down later)
+  - In GitHub repo → Settings → Secrets → New secret:
+    - Name: `AWS_ROLE_ARN`
+    - Value: ARN of the `terraform-deployer` role
+  - In `.github/workflows/terraform.yml` — uncomment the `plan` job (Stage 2)
+  - Confirm the plan posts correctly on a test PR before enabling Stage 3
+
+- [ ] **GitHub Actions Stage 3 — Terraform Apply** (after Stage 2 is confirmed working)
+  - In `.github/workflows/terraform.yml` — uncomment the `apply` job (Stage 3)
+  - Apply runs automatically on merge to main
+  - First apply will provision all infrastructure (~27 resources, takes 8–12 min)
 
 - [ ] **File Sync Agent** — Python script on FUSIL PRO server
   - Watch local folder for 8 files
