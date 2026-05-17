@@ -1,0 +1,162 @@
+name: Terraform
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  # ── Stage 1: Validate ────────────────────────────────────────────────────────
+  # Runs on every PR. No AWS credentials needed.
+  # Catches formatting issues and config errors before review.
+  validate:
+    name: Format & Validate
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    permissions:
+      contents: read
+      pull-requests: write  # needed to post PR comments
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~1.6"
+
+      - name: Terraform Format Check
+        id: fmt
+        # -diff shows exactly which lines need changing if the check fails
+        run: terraform fmt --check --recursive -diff
+        working-directory: terraform/environments/production
+        continue-on-error: true
+
+      - name: Terraform Init (no backend — no AWS needed)
+        id: init
+        run: terraform init -backend=false
+        working-directory: terraform/environments/production
+
+      - name: Terraform Validate
+        id: validate
+        run: terraform validate
+        working-directory: terraform/environments/production
+
+      # Posts a summary comment on the PR showing fmt/validate results
+      - name: Post results to PR
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fmt      = '${{ steps.fmt.outcome }}';
+            const init     = '${{ steps.init.outcome }}';
+            const validate = '${{ steps.validate.outcome }}';
+
+            const icon = (s) => s === 'success' ? '✅' : s === 'skipped' ? '⏭️' : '❌';
+
+            const body = `## Terraform Checks
+            | Step | Result |
+            |---|---|
+            | Format | ${icon(fmt)} \`${fmt}\` |
+            | Init | ${icon(init)} \`${init}\` |
+            | Validate | ${icon(validate)} \`${validate}\` |
+
+            ${fmt !== 'success' ? '> ⚠️ **Format failed** — see the `Terraform Format Check` step in the [Actions log](' + context.payload.pull_request.html_url + '/checks) for the exact diff of what needs fixing. Run `terraform fmt --recursive` locally to auto-fix.' : ''}
+            > **Plan** will be added once AWS credentials (OIDC) are configured.`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body
+            });
+
+      # Fail the job if fmt or validate failed (after posting the comment)
+      - name: Fail if checks did not pass
+        if: steps.fmt.outcome != 'success' || steps.validate.outcome != 'success'
+        run: exit 1
+
+  # ── Stage 2: Plan (COMING SOON) ──────────────────────────────────────────────
+  # Uncomment this job after OIDC + IAM role are set up in AWS.
+  # It will run terraform plan and post the output as a PR comment.
+  #
+  # plan:
+  #   name: Terraform Plan
+  #   runs-on: ubuntu-latest
+  #   needs: validate
+  #   if: github.event_name == 'pull_request'
+  #   permissions:
+  #     id-token: write   # required for OIDC
+  #     contents: read
+  #     pull-requests: write
+  #
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #
+  #     - uses: hashicorp/setup-terraform@v3
+  #       with:
+  #         terraform_version: "~1.6"
+  #
+  #     - name: Configure AWS credentials (OIDC)
+  #       uses: aws-actions/configure-aws-credentials@v4
+  #       with:
+  #         role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+  #         aws-region: ap-south-1
+  #
+  #     - name: Terraform Init
+  #       run: terraform init
+  #       working-directory: terraform/environments/production
+  #
+  #     - name: Terraform Plan
+  #       id: plan
+  #       run: terraform plan -no-color -out=tfplan 2>&1 | tee plan.txt
+  #       working-directory: terraform/environments/production
+  #
+  #     - name: Post plan to PR
+  #       uses: actions/github-script@v7
+  #       with:
+  #         script: |
+  #           const fs = require('fs');
+  #           const plan = fs.readFileSync('terraform/environments/production/plan.txt', 'utf8');
+  #           const truncated = plan.length > 60000 ? plan.substring(0, 60000) + '\n... (truncated)' : plan;
+  #           github.rest.issues.createComment({
+  #             issue_number: context.issue.number,
+  #             owner: context.repo.owner,
+  #             repo: context.repo.repo,
+  #             body: `## Terraform Plan\n\`\`\`\n${truncated}\n\`\`\``
+  #           });
+
+  # ── Stage 3: Apply (COMING SOON) ─────────────────────────────────────────────
+  # Uncomment after OIDC is set up. Runs only on merge to main.
+  #
+  # apply:
+  #   name: Terraform Apply
+  #   runs-on: ubuntu-latest
+  #   if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+  #   permissions:
+  #     id-token: write
+  #     contents: read
+  #
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #
+  #     - uses: hashicorp/setup-terraform@v3
+  #       with:
+  #         terraform_version: "~1.6"
+  #
+  #     - name: Configure AWS credentials (OIDC)
+  #       uses: aws-actions/configure-aws-credentials@v4
+  #       with:
+  #         role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+  #         aws-region: ap-south-1
+  #
+  #     - name: Terraform Init
+  #       run: terraform init
+  #       working-directory: terraform/environments/production
+  #
+  #     - name: Terraform Apply
+  #       run: terraform apply -auto-approve
+  #       working-directory: terraform/environments/production

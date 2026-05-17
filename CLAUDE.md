@@ -296,8 +296,39 @@ Every run writes a row to `etl_runs`: `run_date`, `started_at`, `completed_at`, 
 - [x] Terraform — Schema Runner Lambda (one-time DDL apply)
 - [x] IaC README with full deployment runbook
 - [x] Security review — VPC endpoint SG bug fixed, IAM scoped, SG descriptions added
+- [x] GitHub Actions pipeline — Stage 1 (fmt + validate on PR, no AWS needed)
 
 ## What Is Next (build in this order)
+
+- [ ] **GitHub branch protection on `main`** ← do this now, no AWS needed
+  - Settings → Branches → Add rule → `main`
+  - ✅ Require a pull request before merging
+  - ✅ Require status checks to pass → select `Format & Validate`
+  - ✅ Do not allow bypassing the above settings
+
+- [ ] **AWS Account + OIDC setup** — prerequisite for pipeline Stages 2 & 3
+  - Create AWS account at https://aws.amazon.com
+  - Run bootstrap Terraform: `cd terraform/bootstrap && terraform init && terraform apply`
+    - This creates the S3 state bucket + DynamoDB lock table
+    - Note the output `state_bucket_name` and fill it into `terraform/environments/production/main.tf` backend block
+  - In AWS Console → IAM → Identity Providers → Add Provider:
+    - Type: OpenID Connect
+    - URL: `https://token.actions.githubusercontent.com`
+    - Audience: `sts.amazonaws.com`
+  - Create IAM Role `terraform-deployer`:
+    - Trusted entity: Web identity → select the GitHub OIDC provider
+    - Condition: `token.actions.githubusercontent.com:sub` = `repo:iraviagrollp/iravi-dashboard-iac:ref:refs/heads/main`
+    - Attach permissions: AdministratorAccess (narrow this down later)
+  - In GitHub repo → Settings → Secrets → New secret:
+    - Name: `AWS_ROLE_ARN`
+    - Value: ARN of the `terraform-deployer` role
+  - In `.github/workflows/terraform.yml` — uncomment the `plan` job (Stage 2)
+  - Confirm the plan posts correctly on a test PR before enabling Stage 3
+
+- [ ] **GitHub Actions Stage 3 — Terraform Apply** (after Stage 2 is confirmed working)
+  - In `.github/workflows/terraform.yml` — uncomment the `apply` job (Stage 3)
+  - Apply runs automatically on merge to main
+  - First apply will provision all infrastructure (~27 resources, takes 8–12 min)
 
 - [ ] **File Sync Agent** — Python script on FUSIL PRO server
   - Watch local folder for 8 files

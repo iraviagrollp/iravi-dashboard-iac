@@ -45,15 +45,15 @@ resource "aws_iam_role_policy" "schema_runner" {
     Version = "2012-10-17"
     Statement = [
       {
-        Sid    = "SecretsManager"
-        Effect = "Allow"
-        Action = ["secretsmanager:GetSecretValue"]
+        Sid      = "SecretsManager"
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue"]
         Resource = [aws_secretsmanager_secret.db.arn]
       },
       {
-        Sid    = "S3ReadSchema"
-        Effect = "Allow"
-        Action = ["s3:GetObject"]
+        Sid      = "S3ReadSchema"
+        Effect   = "Allow"
+        Action   = ["s3:GetObject"]
         Resource = ["${data.aws_s3_bucket.tfstate.arn}/schema/*"]
       },
       {
