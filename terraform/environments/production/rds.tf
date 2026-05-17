@@ -61,8 +61,8 @@ resource "aws_db_instance" "main" {
   multi_az               = false
 
   # Config
-  parameter_group_name        = aws_db_parameter_group.postgres16.name
-  auto_minor_version_upgrade  = true
+  parameter_group_name       = aws_db_parameter_group.postgres16.name
+  auto_minor_version_upgrade = true
 
   # Backups
   # Windows expressed in UTC. 20:30–21:30 UTC = 02:00–03:00 IST (well after ETL).

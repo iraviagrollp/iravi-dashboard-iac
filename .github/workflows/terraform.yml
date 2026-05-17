@@ -15,6 +15,10 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
 
+    permissions:
+      contents: read
+      pull-requests: write  # needed to post PR comments
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -26,8 +30,10 @@ jobs:
 
       - name: Terraform Format Check
         id: fmt
-        run: terraform fmt --check --recursive
+        # -diff shows exactly which lines need changing if the check fails
+        run: terraform fmt --check --recursive -diff
         working-directory: terraform/environments/production
+        continue-on-error: true
 
       - name: Terraform Init (no backend — no AWS needed)
         id: init
@@ -49,15 +55,16 @@ jobs:
             const init     = '${{ steps.init.outcome }}';
             const validate = '${{ steps.validate.outcome }}';
 
-            const icon = (s) => s === 'success' ? '✅' : '❌';
+            const icon = (s) => s === 'success' ? '✅' : s === 'skipped' ? '⏭️' : '❌';
 
             const body = `## Terraform Checks
             | Step | Result |
             |---|---|
             | Format | ${icon(fmt)} \`${fmt}\` |
-            | Init   | ${icon(init)} \`${init}\` |
+            | Init | ${icon(init)} \`${init}\` |
             | Validate | ${icon(validate)} \`${validate}\` |
 
+            ${fmt !== 'success' ? '> ⚠️ **Format failed** — see the `Terraform Format Check` step in the [Actions log](' + context.payload.pull_request.html_url + '/checks) for the exact diff of what needs fixing. Run `terraform fmt --recursive` locally to auto-fix.' : ''}
             > **Plan** will be added once AWS credentials (OIDC) are configured.`;
 
             github.rest.issues.createComment({
@@ -66,6 +73,11 @@ jobs:
               repo: context.repo.repo,
               body
             });
+
+      # Fail the job if fmt or validate failed (after posting the comment)
+      - name: Fail if checks did not pass
+        if: steps.fmt.outcome != 'success' || steps.validate.outcome != 'success'
+        run: exit 1
 
   # ── Stage 2: Plan (COMING SOON) ──────────────────────────────────────────────
   # Uncomment this job after OIDC + IAM role are set up in AWS.
