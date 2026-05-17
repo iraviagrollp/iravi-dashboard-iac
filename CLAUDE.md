@@ -194,11 +194,19 @@ Target: Amazon RDS PostgreSQL 16 — database name `iravi_dashboard`
 | SG | Purpose |
 |---|---|
 | `sg_lambda_id` | Attached to all Lambda functions |
-| `sg_rds_id` | RDS — inbound from Lambda SG only |
+| `sg_rds_id` | RDS — inbound from Lambda SG + bastion SG |
 | `sg_elasticache_id` | ElastiCache — inbound from Lambda SG only |
 | `sg_vpc_endpoints` | VPC Interface endpoint ENIs — inbound 443 from Lambda SG only |
+| `sg_bastion` | Bastion EC2 — inbound SSH from `bastion_allowed_cidr`, outbound 5432 to RDS |
 
 **Important:** Always use `sg_vpc_endpoints` (not `sg_lambda_id`) as the `security_group_ids` for any Interface VPC endpoint. Interface endpoint ENIs need an inbound rule; `sg_lambda_id` has none.
+
+### Bastion host (RDS access for SQL clients)
+- Instance: `t3.micro`, Amazon Linux 2023, public subnet, `~$8/mo`
+- SSH key pair must be created manually in AWS Console before `terraform apply`
+- `bastion_allowed_cidr` must be set to your public IP (`curl https://ifconfig.me` → append `/32`)
+- Connect via SSH tunnel in pgAdmin/DBeaver — see README for step-by-step
+- `terraform output bastion_public_ip` gives the IP to use as tunnel host
 
 ### Terraform outputs needed downstream
 After `terraform apply`, capture these — they are inputs to every Lambda built next:
@@ -297,6 +305,7 @@ Every run writes a row to `etl_runs`: `run_date`, `started_at`, `completed_at`, 
 - [x] IaC README with full deployment runbook
 - [x] Security review — VPC endpoint SG bug fixed, IAM scoped, SG descriptions added
 - [x] GitHub Actions pipeline — Stage 1 (fmt + validate on PR, no AWS needed)
+- [x] Terraform — Bastion host EC2 for SSH tunnel access to RDS
 
 ## What Is Next (build in this order)
 

@@ -43,3 +43,8 @@ output "sns_alerts_arn" {
   description = "Pass this ARN to ETL and Redis Updater Lambda for failure notifications"
   value       = aws_sns_topic.alerts.arn
 }
+
+output "bastion_public_ip" {
+  description = "SSH to this IP to tunnel into RDS. Use as the tunnel host in pgAdmin/DBeaver."
+  value       = aws_instance.bastion.public_ip
+}

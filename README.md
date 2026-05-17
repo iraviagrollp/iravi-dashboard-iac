@@ -10,12 +10,13 @@ Region: `ap-south-1` (Mumbai).
 | Layer | Resource |
 |---|---|
 | Network | VPC, 2 public + 2 private subnets, Internet Gateway, NAT Gateway |
-| Security | 4 security groups (Lambda, RDS, ElastiCache, VPC Endpoints) with scoped rules |
+| Security | 5 security groups (Lambda, RDS, ElastiCache, VPC Endpoints, Bastion) with scoped rules |
 | VPC Endpoints | S3 gateway (free), Secrets Manager interface (dedicated endpoint SG) |
 | Database | RDS PostgreSQL 16 — `db.t3.small`, 20 GB gp3, encrypted |
 | Credentials | AWS Secrets Manager secret with DB host/port/name/user/password |
 | Monitoring | SNS alert topic + 5 CloudWatch alarms (CPU, storage, connections, memory, write latency) |
 | Schema Runner | One-time Lambda to apply `db/schema.sql` against RDS — reusable for future migrations |
+| Bastion Host | `t3.micro` EC2 in public subnet — SSH tunnel entry point for SQL client access to RDS |
 | CI/CD | GitHub Actions — fmt + validate on PR (Stage 1); plan + apply coming after AWS account setup |
 
 ---
@@ -294,6 +295,59 @@ If there's an error, check the Lambda logs:
 ```bash
 aws logs tail /aws/lambda/iravi-dashboard-schema-runner --follow
 ```
+
+---
+
+## Connecting to RDS with a SQL Client
+
+RDS is in a private subnet with no public IP. Connect via SSH tunnel through the bastion host.
+
+### Before first connection (one-time setup)
+
+**1. Create an SSH key pair in AWS Console**
+- Console → EC2 → Key Pairs → Create key pair
+- Name: `iravi-dashboard-bastion`, Format: `.pem`
+- Download and store the `.pem` file — you cannot download it again
+
+**2. Find your public IP and set it in tfvars**
+```bash
+curl https://ifconfig.me
+# e.g. 203.0.113.45  →  set bastion_allowed_cidr = "203.0.113.45/32"
+```
+
+**3. After `terraform apply`, get the bastion IP**
+```bash
+terraform output bastion_public_ip
+```
+
+### Connecting via pgAdmin
+
+1. Add New Server → **SSH Tunnel** tab:
+
+| Field | Value |
+|---|---|
+| Tunnel host | `bastion_public_ip` from `terraform output` |
+| Tunnel port | `22` |
+| Username | `ec2-user` |
+| Identity file | path to your `.pem` file |
+
+2. **Connection** tab:
+
+| Field | Value |
+|---|---|
+| Host | RDS endpoint — `terraform output rds_endpoint` |
+| Port | `5432` |
+| Database | `iravi_dashboard` |
+| Username | `dashboard_admin` |
+| Password | from AWS Console → Secrets Manager → `iravi/dashboard/db` |
+
+### Connecting via DBeaver / TablePlus
+
+Same values — look for **SSH Tunnel** or **SSH** section in the connection settings and fill in the same fields as above.
+
+### If your IP changes
+
+Update `bastion_allowed_cidr` in `terraform.tfvars` and run `terraform apply` — it updates the security group rule in seconds.
 
 ---
 
