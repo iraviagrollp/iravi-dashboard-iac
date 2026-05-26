@@ -45,7 +45,7 @@ resource "aws_security_group_rule" "lambda_to_https" {
 
 resource "aws_security_group" "rds" {
   name        = "${var.project}-sg-rds"
-  description = "RDS PostgreSQL — inbound from Lambda only"
+  description = "RDS PostgreSQL - inbound from Lambda only"
   vpc_id      = aws_vpc.main.id
   tags        = { Name = "${var.project}-sg-rds" }
 }
@@ -64,7 +64,7 @@ resource "aws_security_group_rule" "rds_from_lambda" {
 
 resource "aws_security_group" "elasticache" {
   name        = "${var.project}-sg-elasticache"
-  description = "ElastiCache Redis — inbound from Lambda only"
+  description = "ElastiCache Redis - inbound from Lambda only"
   vpc_id      = aws_vpc.main.id
   tags        = { Name = "${var.project}-sg-elasticache" }
 }
@@ -86,7 +86,7 @@ resource "aws_security_group_rule" "elasticache_from_lambda" {
 
 resource "aws_security_group" "vpc_endpoints" {
   name        = "${var.project}-sg-vpc-endpoints"
-  description = "VPC Interface endpoint ENIs — inbound HTTPS from Lambda only"
+  description = "VPC Interface endpoint ENIs - inbound HTTPS from Lambda only"
   vpc_id      = aws_vpc.main.id
   tags        = { Name = "${var.project}-sg-vpc-endpoints" }
 }

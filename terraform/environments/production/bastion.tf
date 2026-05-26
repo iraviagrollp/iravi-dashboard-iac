@@ -31,7 +31,7 @@ data "aws_ami" "amazon_linux_2023" {
 
 resource "aws_security_group" "bastion" {
   name        = "${var.project}-sg-bastion"
-  description = "Bastion host — SSH inbound from allowed IP, PostgreSQL outbound to RDS"
+  description = "Bastion host - SSH inbound from allowed IP, PostgreSQL outbound to RDS"
   vpc_id      = aws_vpc.main.id
   tags        = { Name = "${var.project}-sg-bastion" }
 }
