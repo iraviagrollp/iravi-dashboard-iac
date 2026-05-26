@@ -18,6 +18,8 @@ Region: `ap-south-1` (Mumbai).
 | Schema Runner | One-time Lambda to apply `db/schema.sql` against RDS — reusable for future migrations |
 | Bastion Host | `t3.micro` EC2 in public subnet — SSH tunnel entry point for SQL client access to RDS |
 | CI/CD | GitHub Actions — fmt + validate on PR (Stage 1); plan + apply coming after AWS account setup |
+| Diagram | Visual architecture diagram — `design/aws-architecture-diagram.html` (git-ignored, local only) |
+| Setup Guide | AWS account setup guide — `design/aws-account-setup-guide.html` (git-ignored, local only) |
 
 ---
 
@@ -44,13 +46,13 @@ git push origin feature/add-elasticache
 | Format | ✅ Active | `terraform fmt --check -diff` — fails and shows exact diff if files aren't formatted | No |
 | Init | ✅ Active | `terraform init -backend=false` — verifies providers resolve | No |
 | Validate | ✅ Active | `terraform validate` — catches syntax and config errors | No |
-| Plan | 🔒 Commented out | `terraform plan` — shows exactly what will change in AWS, posted as PR comment | Yes (OIDC) |
+| Plan | ✅ Active | `terraform plan` — shows exactly what will change in AWS, posted as PR comment | Yes (OIDC) |
 
 ### What happens on merge to `main`
 
 | Stage | Status | What it does | AWS needed? |
 |---|---|---|---|
-| Apply | 🔒 Commented out | `terraform apply` — deploys changes to AWS automatically | Yes (OIDC) |
+| Apply | ✅ Active | `terraform apply` — deploys changes to AWS automatically | Yes (OIDC) |
 
 > Both commented-out stages are already written in `.github/workflows/terraform.yml` — they just need AWS credentials wired up and the comment blocks removed.
 
@@ -83,9 +85,20 @@ terraform apply
 - Condition: `token.actions.githubusercontent.com:sub` = `repo:iraviagrollp/iravi-dashboard-iac:ref:refs/heads/main`
 - Permissions: `AdministratorAccess` (can be narrowed later)
 
-**Step 4 — Add secret to GitHub**
-- Repo → Settings → Secrets → New repository secret
-- Name: `AWS_ROLE_ARN`, Value: ARN of the `terraform-deployer` role
+**Step 4 — Add secrets to GitHub**
+
+Go to Repo → Settings → Secrets and variables → Actions → New repository secret. Add all 4:
+
+| Secret name | Value | Purpose |
+|---|---|---|
+| `AWS_ROLE_ARN` | ARN of `terraform-deployer` role | Used by the pipeline OIDC step to assume the IAM role and authenticate with AWS |
+| `TF_VAR_alert_email` | your email address | Terraform `alert_email` variable — SNS subscription for CloudWatch alarms |
+| `TF_VAR_bastion_key_name` | `iravi-dashboard-bastion` | Terraform `bastion_key_name` variable — EC2 Key Pair attached to the bastion host |
+| `TF_VAR_bastion_allowed_cidr` | your public IPv4 + `/32` (run `curl https://api4.ipify.org`) | Terraform `bastion_allowed_cidr` variable — only this IP can SSH into the bastion on port 22 |
+
+> **Why `TF_VAR_*` secrets?** `terraform.tfvars` is git-ignored so the pipeline can't read it. Terraform automatically maps any environment variable prefixed with `TF_VAR_` to the matching input variable — these secrets are the pipeline equivalent of `terraform.tfvars`.
+
+> **If your IP changes:** Update `TF_VAR_bastion_allowed_cidr` in GitHub secrets and re-run the pipeline — it updates the security group rule in seconds.
 
 **Step 5 — Uncomment Stage 2 in `.github/workflows/terraform.yml`**
 - Remove the `#` comment block around the `plan` job
@@ -394,16 +407,20 @@ terraform destroy
 
 ## Cost Estimate (ap-south-1)
 
-| Resource | Monthly |
-|---|---|
-| RDS db.t3.small (single-AZ, 20 GB gp3) | ~$25–30 |
-| NAT Gateway (1 AZ) + data | ~$35–45 |
-| Secrets Manager interface VPC endpoint | ~$8 |
-| CloudWatch alarms + logs | ~$2 |
-| S3 (state bucket, exports) | < $1 |
-| **Total** | **~$70–85/mo** |
+| Resource | Monthly | Notes |
+|---|---|---|
+| RDS db.t3.small (single-AZ, 20 GB gp3) | ~$29 | Instance + storage |
+| NAT Gateway (1 AZ) + data | ~$44 | Largest cost — see note |
+| Secrets Manager Interface endpoint | ~$10 | |
+| Bastion EC2 t3.micro | ~$10 | Drops to ~$4 if stopped when not in use |
+| CloudWatch alarms + logs | ~$2 | |
+| S3 (state bucket, exports) | <$1 | |
+| **Total (bastion running 24/7)** | **~$95/mo** | |
+| **Total (bastion stopped when idle)** | **~$89/mo** | Realistic day-to-day |
 
-> The NAT Gateway is the largest cost. It can be reduced by adding VPC endpoints for services Lambda calls frequently (already done for S3 and Secrets Manager).
+> **Bastion tip:** Stop the bastion from the AWS Console when you're not actively querying the DB — you only pay ~$3.50/mo for the idle EIP instead of ~$10 for a running instance. Restart takes seconds.
+>
+> The NAT Gateway remains the largest fixed cost. It can be reduced later by adding VPC endpoints for CloudWatch Logs and SNS (see Prospective Cost Optimisations below).
 
 ---
 

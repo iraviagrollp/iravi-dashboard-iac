@@ -18,6 +18,13 @@ response.json
 # Local reference docs — not part of the repo
 design/
 
+# Creds
+creds/
+
+# Helpers
+helpers/
+
+
 # OS noise
 .DS_Store
 Thumbs.db

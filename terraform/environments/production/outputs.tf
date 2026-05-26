@@ -48,3 +48,13 @@ output "bastion_public_ip" {
   description = "SSH to this IP to tunnel into RDS. Use as the tunnel host in pgAdmin/DBeaver."
   value       = aws_instance.bastion.public_ip
 }
+
+output "api_endpoint" {
+  description = "API Gateway base URL — append /sales to call the sales endpoint"
+  value       = aws_apigatewayv2_stage.default.invoke_url
+}
+
+output "data_bucket_name" {
+  description = "S3 data landing bucket — configure File Sync Agent to upload here under raw/{date}/"
+  value       = aws_s3_bucket.data.id
+}

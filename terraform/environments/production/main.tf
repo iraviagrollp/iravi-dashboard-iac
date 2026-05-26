@@ -15,7 +15,7 @@ terraform {
   # Fill in bucket and dynamodb_table from bootstrap outputs, then run:
   #   terraform init -reconfigure
   backend "s3" {
-    bucket         = "iravi-dashboard-tfstate-<your-account-id>"
+    bucket         = "iravi-dashboard-tfstate-227037612364"
     key            = "infra/terraform.tfstate"
     region         = "ap-south-1"
     dynamodb_table = "iravi-dashboard-tfstate-lock"
