@@ -68,7 +68,7 @@ resource "aws_db_instance" "main" {
   # Windows expressed in UTC. 20:30–21:30 UTC = 02:00–03:00 IST (well after ETL).
   backup_retention_period = var.backup_retention_days
   backup_window           = "20:30-21:30"
-  maintenance_window      = "sun:21:00-sun:22:00"
+  maintenance_window      = "sun:22:00-sun:23:00"
   copy_tags_to_snapshot   = true
 
   # Observability
