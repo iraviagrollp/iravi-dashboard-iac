@@ -104,7 +104,10 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: iraviagrollp/business-core
-          path: ../business-core
+          path: business-core
+
+      - name: Link business-core to expected relative path
+        run: ln -s "$GITHUB_WORKSPACE/business-core" "$GITHUB_WORKSPACE/../business-core"
 
       - uses: hashicorp/setup-terraform@v3
         with:
@@ -169,7 +172,10 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: iraviagrollp/business-core
-          path: ../business-core
+          path: business-core
+
+      - name: Link business-core to expected relative path
+        run: ln -s "$GITHUB_WORKSPACE/business-core" "$GITHUB_WORKSPACE/../business-core"
 
       - uses: hashicorp/setup-terraform@v3
         with:
