@@ -1,8 +1,5 @@
 {
   "permissions": {
-    "ask": [
-      "Bash(rm *)"
-    ],
     "allow": [
       "Bash(python -c ' *)",
       "Bash(py --version)",
@@ -20,7 +17,11 @@
       "Read(//d//**)",
       "Bash(\"/d/Runtimes/Python313/python.exe\" -c \"import openpyxl; print\\('ok'\\)\")",
       "Bash(\"/d/Runtimes/Python313/python.exe\" -m pip install openpyxl)",
-      "Bash(/d/Runtimes/Python313/python.exe -c ' *)"
+      "Bash(/d/Runtimes/Python313/python.exe -c ' *)",
+      "PowerShell(git *)"
+    ],
+    "ask": [
+      "Bash(rm *)"
     ]
   }
 }

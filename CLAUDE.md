@@ -11,6 +11,8 @@
   - CLAUDE.md: reflect any architectural decisions, new resources, security rules, or design constraints introduced by the change
   - README.md: update "What This Provisions", expected resource counts, troubleshooting entries, or deployment steps affected by the change
   - Never consider a task complete until both files are consistent with the current state of the code
+- **Cross-project sync rule:** This file tracks high-level completion of ALL components (IaC, FileSyncAgent, ETL Lambda, API, UI). Each component has its own CLAUDE.md with detailed status. When a component reaches a milestone, tick the checkbox here. Do NOT duplicate implementation detail — just reflect done/in-progress/not-started.
+  - FileSyncAgent detail → `D:\Projects\Iravi\FileSyncAgent\CLAUDE.md`
 
 ---
 
@@ -30,32 +32,45 @@ backed by **IRAVI DB** (MySQL). This dashboard is a read-only analytics layer on
 ## Repository Layout
 
 ```
-Admin Dashboard/                        ← working directory
-├── CLAUDE.md                           ← this file
-├── IaC/                                ← git repo (push to GitHub separately)
+D:\Projects\Iravi\
+├── IaC\                                ← this repo (Terraform + docs)
+│   ├── CLAUDE.md                       ← this file
 │   ├── README.md                       ← deployment runbook
 │   ├── .gitignore
 │   ├── db/
 │   │   ├── schema.sql                  ← PostgreSQL DDL (FINALIZED)
 │   │   └── schema.mmd                  ← Mermaid class diagram of schema
+│   ├── design/
+│   │   ├── stakeholder-presentation.html
+│   │   ├── aws-architecture-diagram.html
+│   │   └── aws-account-setup-guide.html
 │   └── terraform/
 │       ├── bootstrap/
 │       │   └── main.tf                 ← creates S3 state bucket + DynamoDB lock (run once)
 │       └── environments/
 │           └── production/             ← all prod AWS infra
 │               ├── main.tf             ← provider + S3 backend
-│               ├── variables.tf
+│               ├── variables.tf        ← includes data_bucket_name
 │               ├── terraform.tfvars.example
-│               ├── outputs.tf
+│               ├── outputs.tf          ← includes api_endpoint
 │               ├── vpc.tf              ← VPC, subnets, IGW, NAT
-│               ├── security_groups.tf  ← sg-lambda, sg-rds, sg-elasticache
+│               ├── security_groups.tf  ← sg-lambda, sg-rds, sg-elasticache, sg-bastion
 │               ├── vpc_endpoints.tf    ← S3 gateway + Secrets Manager interface
 │               ├── rds.tf              ← RDS PostgreSQL 16
 │               ├── secrets.tf          ← Secrets Manager (DB credentials)
 │               ├── monitoring.tf       ← SNS + 5 CloudWatch alarms
-│               └── schema_runner.tf    ← one-time Lambda to apply schema.sql
-└── design/
-    └── stakeholder-presentation.html   ← full system design doc for stakeholders
+│               ├── schema_runner.tf    ← one-time Lambda to apply schema.sql
+│               ├── bastion.tf          ← Bastion EC2 for SSH tunnel access
+│               ├── lambda_etl_sales.tf ← ETL Lambda + S3 trigger (Phase 1)
+│               ├── lambda_redis_updater.tf ← Redis Updater + EventBridge trigger
+│               └── lambda_api.tf       ← API Lambda + API Gateway HTTP API
+├── business-core\                      ← separate repo (processing logic)
+│   ├── CLAUDE.md
+│   └── lambda\
+│       ├── etl_sales\                  ← Phase 1 active build target
+│       ├── redis_updater\
+│       └── api\
+└── FileSyncAgent\                      ← separate repo (deployed on FUSIL PRO server)
 ```
 
 ---
@@ -208,6 +223,17 @@ Target: Amazon RDS PostgreSQL 16 — database name `iravi_dashboard`
 - Connect via SSH tunnel in pgAdmin/DBeaver — see README for step-by-step
 - `terraform output bastion_public_ip` gives the IP to use as tunnel host
 
+### GitHub Actions secrets (pipeline variables)
+
+| Secret | Purpose |
+|---|---|
+| `AWS_ROLE_ARN` | OIDC: pipeline assumes `terraform-deployer` IAM role to authenticate with AWS |
+| `TF_VAR_alert_email` | Terraform `alert_email` variable — SNS CloudWatch alarm email |
+| `TF_VAR_bastion_key_name` | Terraform `bastion_key_name` variable — EC2 Key Pair for bastion SSH |
+| `TF_VAR_bastion_allowed_cidr` | Terraform `bastion_allowed_cidr` variable — allowed SSH source IP (IPv4/32) |
+
+`terraform.tfvars` is git-ignored. The pipeline reads these secrets as `TF_VAR_*` env vars instead — Terraform maps them automatically to the matching input variables.
+
 ### Terraform outputs needed downstream
 After `terraform apply`, capture these — they are inputs to every Lambda built next:
 ```
@@ -304,47 +330,27 @@ Every run writes a row to `etl_runs`: `run_date`, `started_at`, `completed_at`, 
 - [x] Terraform — Schema Runner Lambda (one-time DDL apply)
 - [x] IaC README with full deployment runbook
 - [x] Security review — VPC endpoint SG bug fixed, IAM scoped, SG descriptions added
-- [x] GitHub Actions pipeline — Stage 1 (fmt + validate on PR, no AWS needed)
+- [x] GitHub Actions pipeline — all 3 stages active (fmt + validate on PR, plan on PR, apply on merge to main)
 - [x] Terraform — Bastion host EC2 for SSH tunnel access to RDS
+- [x] AWS architecture diagram (`design/aws-architecture-diagram.html`)
+- [x] AWS account setup guide (`design/aws-account-setup-guide.html`)
+- [x] AWS Account + OIDC setup — account live, `terraform-deployer` role created, pipeline stages 2 & 3 enabled, `terraform apply` run, all infra provisioned
+- [x] File Sync Agent — deployed and running on FUSIL PRO server · `D:\Projects\Iravi\FileSyncAgent\`
+- [x] business-core project created — `D:\Projects\Iravi\business-core\` with lambda scaffolds for etl_sales, redis_updater, api
+- [x] Terraform — Lambda resources (`lambda_etl_sales.tf`, `lambda_redis_updater.tf`, `lambda_api.tf`) with IAM, triggers, API Gateway
+
+## Strategy: Sales-First End-to-End
+
+**Decision (2026-05-26):** Build the full pipeline end-to-end for sales data only before expanding to other data types. Goal is to get comfortable with the complete flow (S3 → ETL → DB → Redis → API → UI) and give the team time to validate before adding purchases, stock, expenses, etc.
+
+Scope for this phase:
+- File: `RGF Sales Book*.xlsx` only
+- Table: `fact_sales` + `dim_customers` (FK dependency)
+- Trigger: direct S3 `ObjectCreated` event on the sales file (no manifest needed for single-file flow)
+- API: `/sales` endpoint only
+- UI: Sales Analytics view only
 
 ## What Is Next (build in this order)
-
-- [ ] **GitHub branch protection on `main`** ← do this now, no AWS needed
-  - Settings → Branches → Add rule → `main`
-  - ✅ Require a pull request before merging
-  - ✅ Require status checks to pass → select `Format & Validate`
-  - ✅ Do not allow bypassing the above settings
-
-- [ ] **AWS Account + OIDC setup** — prerequisite for pipeline Stages 2 & 3
-  - Create AWS account at https://aws.amazon.com
-  - Run bootstrap Terraform: `cd terraform/bootstrap && terraform init && terraform apply`
-    - This creates the S3 state bucket + DynamoDB lock table
-    - Note the output `state_bucket_name` and fill it into `terraform/environments/production/main.tf` backend block
-  - In AWS Console → IAM → Identity Providers → Add Provider:
-    - Type: OpenID Connect
-    - URL: `https://token.actions.githubusercontent.com`
-    - Audience: `sts.amazonaws.com`
-  - Create IAM Role `terraform-deployer`:
-    - Trusted entity: Web identity → select the GitHub OIDC provider
-    - Condition: `token.actions.githubusercontent.com:sub` = `repo:iraviagrollp/iravi-dashboard-iac:ref:refs/heads/main`
-    - Attach permissions: AdministratorAccess (narrow this down later)
-  - In GitHub repo → Settings → Secrets → New secret:
-    - Name: `AWS_ROLE_ARN`
-    - Value: ARN of the `terraform-deployer` role
-  - In `.github/workflows/terraform.yml` — uncomment the `plan` job (Stage 2)
-  - Confirm the plan posts correctly on a test PR before enabling Stage 3
-
-- [ ] **GitHub Actions Stage 3 — Terraform Apply** (after Stage 2 is confirmed working)
-  - In `.github/workflows/terraform.yml` — uncomment the `apply` job (Stage 3)
-  - Apply runs automatically on merge to main
-  - First apply will provision all infrastructure (~27 resources, takes 8–12 min)
-
-- [ ] **File Sync Agent** — Python script on FUSIL PRO server
-  - Watch local folder for 8 files
-  - Upload to `s3://iravi-dashboard/raw/{date}/`
-  - Generate `manifest.json` after all uploads verified
-  - SNS alert on failure after 3 retries
-  - Windows Task Scheduler trigger: every 15 min from 7PM IST
 
 - [ ] **ElastiCache Redis** — add Terraform in `environments/production/`
   - Engine: Redis 7.x
@@ -352,15 +358,17 @@ Every run writes a row to `etl_runs`: `run_date`, `started_at`, `completed_at`, 
   - Subnet group using existing private subnets
   - Security group: `sg_elasticache_id` (already created)
 
-- [ ] **Data Extractor & Massager Lambda**
+- [ ] **ETL Lambda — Sales only (Phase 1)**
   - Runtime: Python 3.12
-  - Triggered by S3 event on `manifest.json`
-  - Parses all 8 file types (see column schemas above)
-  - Upserts into Dashboard DB via `psycopg2`
-  - Writes success/failure to `etl_runs` table
+  - Triggered by S3 `ObjectCreated` on `RGF Sales Book*.xlsx` (no manifest — single file)
+  - Parses sales file: skip rows 1–5, detect/skip total rows
+  - Columns: `Date, Voucher No, Branch, Party, Party GSTN, Qty, Gross, Disc, AV, CGST, SGST, IGST, Net, BillValue`
+  - Upserts `dim_customers` (on `customer_name`) then `fact_sales` (on `voucher_no, transaction_date`)
+  - Writes success/failure to `etl_runs`
   - Emits EventBridge event on success → triggers Redis Updater
-  - Moves files from `raw/` to `processed/` on success
+  - Moves file from `raw/` to `processed/` on success
   - Attach: `sg_lambda_id`, `private_subnet_ids`, `db_secret_arn`
+  - Expand to all 8 file types in Phase 2
 
 - [ ] **Redis Updater Lambda**
   - Triggered by ETL success EventBridge event
@@ -368,21 +376,21 @@ Every run writes a row to `etl_runs`: `run_date`, `started_at`, `completed_at`, 
   - Writes to ElastiCache with 7-day TTL
   - Key schema: `dashboard:{view}:{date}`
 
-- [ ] **API Layer**
+- [ ] **API Layer — Sales only (Phase 1)**
   - API Gateway + Lambda (Python 3.12)
   - Cognito JWT authoriser
   - RBAC middleware: decode JWT → check Cognito group → enforce access
   - Cache-aside: Redis fast path → Dashboard DB fallback → populate Redis
-  - Endpoints: `/summary`, `/sales`, `/expenses`, `/purchases`, `/stock`, `/customers`, `/customers/{id}/aging`
+  - Endpoint: `/sales` only — expand to full endpoint set in Phase 2
 
 - [ ] **Cognito** — add Terraform
   - User pool + App Client
   - Groups: `admin`, `finance`, `operations`, `viewer`
 
-- [ ] **Dashboard UI**
+- [ ] **Dashboard UI — Sales Analytics view (Phase 1)**
   - React + AWS Amplify
   - Cognito hosted login
-  - 6 views listed above
+  - Sales Analytics view only — expand to all 6 views in Phase 2
 
 - [ ] **One-time historical migration**
   - Export 1 month of transaction files from FUSIL PRO
@@ -407,6 +415,17 @@ Every run writes a row to `etl_runs`: `run_date`, `started_at`, `completed_at`, 
 | RDS Proxy | No (for now) | Low concurrency — add if connection exhaustion becomes an issue |
 
 ---
+
+## Current Cost Estimate (ap-south-1)
+
+| Resource | Monthly |
+|---|---|
+| RDS db.t3.small | ~$29 |
+| NAT Gateway | ~$44 |
+| Secrets Manager endpoint | ~$10 |
+| Bastion EC2 t3.micro (24/7) | ~$10 |
+| CloudWatch + S3 | ~$3 |
+| **Total** | **~$95/mo** (~$89 if bastion stopped when idle) |
 
 ## Prospective Cost Saving Avenues
 
