@@ -147,6 +147,10 @@ jobs:
               body: `## Terraform Plan\n\`\`\`\n${truncated}\n\`\`\``
             });
 
+      - name: Fail if plan failed
+        if: steps.plan.outcome != 'success'
+        run: exit 1
+
   # ── Stage 3: Apply ───────────────────────────────────────────────────────────
   # Triggered on merge to main but waits for manual approval before running.
   # Approve via GitHub Actions UI: Actions tab → the workflow run → Review deployments.
