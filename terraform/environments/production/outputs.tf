@@ -44,9 +44,9 @@ output "sns_alerts_arn" {
   value       = aws_sns_topic.alerts.arn
 }
 
-output "bastion_public_ip" {
-  description = "SSH to this IP to tunnel into RDS. Use as the tunnel host in pgAdmin/DBeaver."
-  value       = aws_instance.bastion.public_ip
+output "bastion_instance_id" {
+  description = "Use with: aws ssm start-session --target <id> --document-name AWS-StartPortForwardingSessionToRemoteHost"
+  value       = aws_instance.bastion.id
 }
 
 output "api_endpoint" {
