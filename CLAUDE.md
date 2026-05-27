@@ -59,8 +59,8 @@ D:\Projects\Iravi\
 │               ├── rds.tf              ← RDS PostgreSQL 16
 │               ├── secrets.tf          ← Secrets Manager (DB credentials)
 │               ├── monitoring.tf       ← SNS + 5 CloudWatch alarms
-│               ├── schema_runner.tf    ← one-time Lambda to apply schema.sql
-│               ├── bastion.tf          ← Bastion EC2 for SSH tunnel access
+│               ├── schema_runner.tf    ← removed (apply schema via SSM + psql)
+│               ├── bastion.tf          ← Bastion EC2 — SSM Session Manager, no SSH
 │               ├── lambda_etl_sales.tf ← ETL Lambda + S3 trigger (Phase 1)
 │               ├── lambda_redis_updater.tf ← Redis Updater + EventBridge trigger
 │               └── lambda_api.tf       ← API Lambda + API Gateway HTTP API
@@ -212,16 +212,16 @@ Target: Amazon RDS PostgreSQL 16 — database name `iravi_dashboard`
 | `sg_rds_id` | RDS — inbound from Lambda SG + bastion SG |
 | `sg_elasticache_id` | ElastiCache — inbound from Lambda SG only |
 | `sg_vpc_endpoints` | VPC Interface endpoint ENIs — inbound 443 from Lambda SG only |
-| `sg_bastion` | Bastion EC2 — inbound SSH from `bastion_allowed_cidr`, outbound 5432 to RDS |
+| `sg_bastion` | Bastion EC2 — outbound 443 (SSM) + outbound 5432 to RDS. No inbound rules. |
 
 **Important:** Always use `sg_vpc_endpoints` (not `sg_lambda_id`) as the `security_group_ids` for any Interface VPC endpoint. Interface endpoint ENIs need an inbound rule; `sg_lambda_id` has none.
 
-### Bastion host (RDS access for SQL clients)
+### Bastion host (RDS access via SSM Session Manager)
 - Instance: `t3.micro`, Amazon Linux 2023, public subnet, `~$8/mo`
-- SSH key pair must be created manually in AWS Console before `terraform apply`
-- `bastion_allowed_cidr` must be set to your public IP (`curl https://ifconfig.me` → append `/32`)
-- Connect via SSH tunnel in pgAdmin/DBeaver — see README for step-by-step
-- `terraform output bastion_public_ip` gives the IP to use as tunnel host
+- No SSH port, no key pair, no IP allowlist — access via AWS SSM Session Manager
+- IAM instance profile with `AmazonSSMManagedInstanceCore` attached to the instance
+- Connect using SSM port forwarding — see README for step-by-step
+- `terraform output bastion_instance_id` gives the instance ID needed for the SSM command
 
 ### GitHub Actions secrets (pipeline variables)
 
@@ -229,8 +229,6 @@ Target: Amazon RDS PostgreSQL 16 — database name `iravi_dashboard`
 |---|---|
 | `AWS_ROLE_ARN` | OIDC: pipeline assumes `terraform-deployer` IAM role to authenticate with AWS |
 | `TF_VAR_alert_email` | Terraform `alert_email` variable — SNS CloudWatch alarm email |
-| `TF_VAR_bastion_key_name` | Terraform `bastion_key_name` variable — EC2 Key Pair for bastion SSH |
-| `TF_VAR_bastion_allowed_cidr` | Terraform `bastion_allowed_cidr` variable — allowed SSH source IP (IPv4/32) |
 
 `terraform.tfvars` is git-ignored. The pipeline reads these secrets as `TF_VAR_*` env vars instead — Terraform maps them automatically to the matching input variables.
 
@@ -327,11 +325,11 @@ Every run writes a row to `etl_runs`: `run_date`, `started_at`, `completed_at`, 
 - [x] Terraform — RDS PostgreSQL 16 instance
 - [x] Terraform — Secrets Manager (DB credentials)
 - [x] Terraform — SNS + CloudWatch alarms
-- [x] Terraform — Schema Runner Lambda (one-time DDL apply)
+- [x] Terraform — Schema Runner Lambda (removed — schema applied via SSM + psql)
 - [x] IaC README with full deployment runbook
 - [x] Security review — VPC endpoint SG bug fixed, IAM scoped, SG descriptions added
 - [x] GitHub Actions pipeline — all 3 stages active (fmt + validate on PR, plan on PR, apply on merge to main)
-- [x] Terraform — Bastion host EC2 for SSH tunnel access to RDS
+- [x] Terraform — Bastion host EC2 with SSM Session Manager (no SSH, no key pair, no IP allowlist)
 - [x] AWS architecture diagram (`design/aws-architecture-diagram.html`)
 - [x] AWS account setup guide (`design/aws-account-setup-guide.html`)
 - [x] AWS Account + OIDC setup — account live, `terraform-deployer` role created, pipeline stages 2 & 3 enabled, `terraform apply` run, all infra provisioned

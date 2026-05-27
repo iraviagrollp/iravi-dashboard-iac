@@ -1,16 +1,20 @@
 # ── Bastion Host ──────────────────────────────────────────────────────────────
-# Jump server in the public subnet — used to tunnel into RDS from pgAdmin,
-# DBeaver, TablePlus, or any other SQL client via SSH tunnel.
+# Connects to RDS via AWS Systems Manager Session Manager port forwarding.
+# No SSH port, no key pair, no IP allowlist needed.
 #
-# Before running terraform apply:
-#   1. Go to AWS Console → EC2 → Key Pairs → Create key pair
-#      Name it "iravi-dashboard-bastion", format: .pem, then download it.
-#      Store the .pem file safely — AWS will not let you download it again.
-#   2. Find your current public IP:
-#      curl https://ifconfig.me   →  e.g. 203.0.113.45
-#      Then set bastion_allowed_cidr = "203.0.113.45/32" in terraform.tfvars
-#   3. Set bastion_key_name = "iravi-dashboard-bastion" in terraform.tfvars
-# ─────────────────────────────────────────────────────────────────────────────
+# Usage (after terraform apply):
+#   1. Install AWS CLI and the Session Manager plugin:
+#      https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html
+#
+#   2. Start a port-forwarding session to RDS (run this locally):
+#      aws ssm start-session \
+#        --target <bastion_instance_id from terraform output> \
+#        --document-name AWS-StartPortForwardingSessionToRemoteHost \
+#        --parameters '{"host":["<rds-endpoint>"],"portNumber":["5432"],"localPortNumber":["5432"]}'
+#
+#   3. Connect pgAdmin / DBeaver to localhost:5432
+#      Credentials: AWS Console -> Secrets Manager -> iravi/dashboard/db -> Retrieve secret value
+# -----------------------------------------------------------------------------
 
 data "aws_ami" "amazon_linux_2023" {
   most_recent = true
@@ -31,20 +35,9 @@ data "aws_ami" "amazon_linux_2023" {
 
 resource "aws_security_group" "bastion" {
   name        = "${var.project}-sg-bastion"
-  description = "Bastion host - SSH inbound from allowed IP, PostgreSQL outbound to RDS"
+  description = "Bastion host - HTTPS outbound for SSM, PostgreSQL outbound to RDS"
   vpc_id      = aws_vpc.main.id
   tags        = { Name = "${var.project}-sg-bastion" }
-}
-
-# SSH locked to your IP only — never open port 22 to 0.0.0.0/0
-resource "aws_security_group_rule" "bastion_ssh_inbound" {
-  type              = "ingress"
-  description       = "SSH from operator IP only"
-  from_port         = 22
-  to_port           = 22
-  protocol          = "tcp"
-  security_group_id = aws_security_group.bastion.id
-  cidr_blocks       = [var.bastion_allowed_cidr]
 }
 
 resource "aws_security_group_rule" "bastion_to_rds" {
@@ -59,7 +52,7 @@ resource "aws_security_group_rule" "bastion_to_rds" {
 
 resource "aws_security_group_rule" "bastion_https_outbound" {
   type              = "egress"
-  description       = "HTTPS outbound for OS package updates"
+  description       = "HTTPS outbound for SSM agent and OS updates"
   from_port         = 443
   to_port           = 443
   protocol          = "tcp"
@@ -67,7 +60,7 @@ resource "aws_security_group_rule" "bastion_https_outbound" {
   cidr_blocks       = ["0.0.0.0/0"]
 }
 
-# ── RDS — allow inbound from bastion ─────────────────────────────────────────
+# ── RDS - allow inbound from bastion ─────────────────────────────────────────
 
 resource "aws_security_group_rule" "rds_from_bastion" {
   type                     = "ingress"
@@ -79,6 +72,31 @@ resource "aws_security_group_rule" "rds_from_bastion" {
   source_security_group_id = aws_security_group.bastion.id
 }
 
+# ── IAM Role for SSM ──────────────────────────────────────────────────────────
+
+resource "aws_iam_role" "bastion" {
+  name = "${var.project}-bastion-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "ec2.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "bastion_ssm" {
+  role       = aws_iam_role.bastion.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
+resource "aws_iam_instance_profile" "bastion" {
+  name = "${var.project}-bastion-profile"
+  role = aws_iam_role.bastion.name
+}
+
 # ── Bastion EC2 Instance ──────────────────────────────────────────────────────
 
 resource "aws_instance" "bastion" {
@@ -86,7 +104,7 @@ resource "aws_instance" "bastion" {
   instance_type               = "t3.micro"
   subnet_id                   = aws_subnet.public[0].id
   vpc_security_group_ids      = [aws_security_group.bastion.id]
-  key_name                    = var.bastion_key_name
+  iam_instance_profile        = aws_iam_instance_profile.bastion.name
   associate_public_ip_address = true
 
   root_block_device {

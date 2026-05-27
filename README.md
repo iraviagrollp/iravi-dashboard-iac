@@ -15,8 +15,7 @@ Region: `ap-south-1` (Mumbai).
 | Database | RDS PostgreSQL 16 — `db.t3.small`, 20 GB gp3, encrypted |
 | Credentials | AWS Secrets Manager secret with DB host/port/name/user/password |
 | Monitoring | SNS alert topic + 5 CloudWatch alarms (CPU, storage, connections, memory, write latency) |
-| Schema Runner | One-time Lambda to apply `db/schema.sql` against RDS — reusable for future migrations |
-| Bastion Host | `t3.micro` EC2 in public subnet — SSH tunnel entry point for SQL client access to RDS |
+| Bastion Host | `t3.micro` EC2 in public subnet — SSM Session Manager port forwarding to RDS (no SSH, no key pair) |
 | CI/CD | GitHub Actions — fmt + validate on PR (Stage 1); plan + apply coming after AWS account setup |
 | Diagram | Visual architecture diagram — `design/aws-architecture-diagram.html` (git-ignored, local only) |
 | Setup Guide | AWS account setup guide — `design/aws-account-setup-guide.html` (git-ignored, local only) |
@@ -87,18 +86,14 @@ terraform apply
 
 **Step 4 — Add secrets to GitHub**
 
-Go to Repo → Settings → Secrets and variables → Actions → New repository secret. Add all 4:
+Go to Repo → Settings → Secrets and variables → Actions → New repository secret. Add both:
 
 | Secret name | Value | Purpose |
 |---|---|---|
 | `AWS_ROLE_ARN` | ARN of `terraform-deployer` role | Used by the pipeline OIDC step to assume the IAM role and authenticate with AWS |
 | `TF_VAR_alert_email` | your email address | Terraform `alert_email` variable — SNS subscription for CloudWatch alarms |
-| `TF_VAR_bastion_key_name` | `iravi-dashboard-bastion` | Terraform `bastion_key_name` variable — EC2 Key Pair attached to the bastion host |
-| `TF_VAR_bastion_allowed_cidr` | your public IPv4 + `/32` (run `curl https://api4.ipify.org`) | Terraform `bastion_allowed_cidr` variable — only this IP can SSH into the bastion on port 22 |
 
 > **Why `TF_VAR_*` secrets?** `terraform.tfvars` is git-ignored so the pipeline can't read it. Terraform automatically maps any environment variable prefixed with `TF_VAR_` to the matching input variable — these secrets are the pipeline equivalent of `terraform.tfvars`.
-
-> **If your IP changes:** Update `TF_VAR_bastion_allowed_cidr` in GitHub secrets and re-run the pipeline — it updates the security group rule in seconds.
 
 **Step 5 — Uncomment Stage 2 in `.github/workflows/terraform.yml`**
 - Remove the `#` comment block around the `plan` job
@@ -163,8 +158,7 @@ IaC/
             ├── vpc_endpoints.tf
             ├── rds.tf
             ├── secrets.tf
-            ├── monitoring.tf
-            └── schema_runner.tf
+            └── monitoring.tf
 ```
 
 ---
@@ -226,22 +220,7 @@ alert_email  = "your-email@example.com"   # ← alerts go here
 
 ---
 
-### Step 4 — Check the latest PostgreSQL version (optional but recommended)
-
-The RDS instance is pinned to `16.3` in `rds.tf`. Verify the latest available minor version before applying:
-
-```bash
-aws rds describe-db-engine-versions \
-  --engine postgres \
-  --query 'DBEngineVersions[?starts_with(EngineVersion, `16`)].EngineVersion' \
-  --output table
-```
-
-Update `engine_version` in `rds.tf` if a newer minor version is available.
-
----
-
-### Step 5 — Deploy infrastructure
+### Step 4 — Deploy infrastructure
 
 ```bash
 # Still inside terraform/environments/production/
@@ -282,104 +261,95 @@ AWS sends a confirmation email to `alert_email`. **Click the link in that email*
 
 ### Step 7 — Apply the database schema
 
-Upload `schema.sql` to S3, then invoke the Schema Runner Lambda to apply it against RDS.
+Connect to RDS via the bastion using SSM port forwarding and run `schema.sql` with psql.
 
-```bash
-# From the IaC repo root
-
-# 1. Get the state bucket name
-BUCKET=$(cd terraform/environments/production && terraform output -raw state_bucket_name)
-
-# 2. Upload the schema file
-aws s3 cp db/schema.sql s3://$BUCKET/schema/schema.sql
-
-# 3. Invoke the schema runner Lambda
-aws lambda invoke \
-  --function-name iravi-dashboard-schema-runner \
-  --payload '{}' \
-  response.json
-
-cat response.json
-# Expected: {"status": "ok"}
+**1. Install the Session Manager plugin** (one-time):
+```
+https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html
 ```
 
-If there's an error, check the Lambda logs:
-
+**2. Get the bastion instance ID:**
 ```bash
-aws logs tail /aws/lambda/iravi-dashboard-schema-runner --follow
+cd terraform/environments/production
+terraform output bastion_instance_id
 ```
+
+**3. Get the RDS endpoint and password:**
+- Endpoint: AWS Console → RDS → `iravi-dashboard-db` → Endpoint
+- Password: AWS Console → Secrets Manager → `iravi/dashboard/db` → Retrieve secret value
+
+**4. Start the port-forwarding session (leave this terminal open):**
+```bash
+aws ssm start-session \
+  --target <bastion_instance_id> \
+  --document-name AWS-StartPortForwardingSessionToRemoteHost \
+  --parameters '{"host":["<rds-endpoint>"],"portNumber":["5432"],"localPortNumber":["5432"]}'
+```
+
+**5. In a second terminal, apply the schema:**
+```bash
+psql "host=localhost port=5432 dbname=iravi_dashboard user=dashboard_admin password='<password>' sslmode=require" -f db/schema.sql
+```
+
+You should see `CREATE TABLE`, `CREATE INDEX` etc. for each statement.
 
 ---
 
 ## Connecting to RDS with a SQL Client
 
-RDS is in a private subnet with no public IP. Connect via SSH tunnel through the bastion host.
+RDS is in a private subnet with no public IP. Connect via SSM Session Manager port forwarding through the bastion — no SSH key or open port required.
 
 ### Before first connection (one-time setup)
 
-**1. Create an SSH key pair in AWS Console**
-- Console → EC2 → Key Pairs → Create key pair
-- Name: `iravi-dashboard-bastion`, Format: `.pem`
-- Download and store the `.pem` file — you cannot download it again
-
-**2. Find your public IP and set it in tfvars**
-```bash
-curl https://ifconfig.me
-# e.g. 203.0.113.45  →  set bastion_allowed_cidr = "203.0.113.45/32"
+**1. Install the AWS Session Manager plugin:**
+```
+https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html
 ```
 
-**3. After `terraform apply`, get the bastion IP**
+**2. Get the bastion instance ID:**
 ```bash
-terraform output bastion_public_ip
+cd terraform/environments/production && terraform output bastion_instance_id
 ```
 
-### Connecting via pgAdmin
+### Starting a port-forwarding session
 
-1. Add New Server → **SSH Tunnel** tab:
+Run this in a dedicated terminal and leave it open while you use your SQL client:
+
+```bash
+aws ssm start-session \
+  --target <bastion_instance_id> \
+  --document-name AWS-StartPortForwardingSessionToRemoteHost \
+  --parameters '{"host":["<rds-endpoint>"],"portNumber":["5432"],"localPortNumber":["5432"]}'
+```
+
+Get the RDS endpoint from: AWS Console → RDS → `iravi-dashboard-db` → Endpoint
+
+### Connecting via pgAdmin / DBeaver / TablePlus
+
+With the port-forwarding session running, connect your SQL client to:
 
 | Field | Value |
 |---|---|
-| Tunnel host | `bastion_public_ip` from `terraform output` |
-| Tunnel port | `22` |
-| Username | `ec2-user` |
-| Identity file | path to your `.pem` file |
-
-2. **Connection** tab:
-
-| Field | Value |
-|---|---|
-| Host | RDS endpoint — `terraform output rds_endpoint` |
+| Host | `localhost` |
 | Port | `5432` |
 | Database | `iravi_dashboard` |
 | Username | `dashboard_admin` |
-| Password | from AWS Console → Secrets Manager → `iravi/dashboard/db` |
+| Password | AWS Console → Secrets Manager → `iravi/dashboard/db` → Retrieve secret value |
 
-### Connecting via DBeaver / TablePlus
-
-Same values — look for **SSH Tunnel** or **SSH** section in the connection settings and fill in the same fields as above.
-
-### If your IP changes
-
-Update `bastion_allowed_cidr` in `terraform.tfvars` and run `terraform apply` — it updates the security group rule in seconds.
+No SSH tunnel settings needed — the SSM session already handles the forwarding.
 
 ---
 
 ## Applying Future Schema Changes
 
-The Schema Runner Lambda is kept in place for this purpose.
 When a schema change is needed (e.g. adding a column to `fact_expenses`):
 
 1. Update `db/schema.sql` with the change (use `ALTER TABLE`, not full DDL)
-2. Upload and invoke:
+2. Start an SSM port-forwarding session (see "Connecting to RDS" above)
+3. Run the updated SQL:
 
 ```bash
-# From the IaC repo root
-BUCKET=$(cd terraform/environments/production && terraform output -raw state_bucket_name)
-aws s3 cp db/schema.sql s3://$BUCKET/schema/schema.sql
-aws lambda invoke \
-  --function-name iravi-dashboard-schema-runner \
-  --payload '{}' \
-  response.json && cat response.json
+psql "host=localhost port=5432 dbname=iravi_dashboard user=dashboard_admin password='<password>' sslmode=require" -f db/schema.sql
 ```
 
 ---
@@ -444,13 +414,13 @@ Parked decisions — do not act on these without explicit discussion. Revisit as
 **RDS creation times out**
 → RDS can take up to 15 minutes on first provision. Run `terraform apply` again — it will resume from where it left off.
 
-**Schema runner Lambda errors with connection timeout (RDS)**
-→ The Lambda is in the VPC's private subnets. Confirm `sg_lambda_id` allows outbound TCP 5432 to `sg_rds_id`. Check `terraform output` to verify SG IDs match what's in the Lambda config.
+**SSM port-forwarding session fails to start**
+→ Confirm the bastion instance is running (AWS Console → EC2). Verify the IAM instance profile `iravi-dashboard-bastion-profile` is attached and has `AmazonSSMManagedInstanceCore`. The SSM agent may take 1–2 minutes after instance start to register.
 
 **Lambda times out reaching Secrets Manager**
 → The Secrets Manager Interface endpoint requires its own SG (`sg-vpc-endpoints`) with an inbound 443 rule from `sg_lambda_id`. Verify the `vpc_endpoints` SG exists and its ingress rule references the Lambda SG.
 
-**Schema runner errors with `relation already exists`**
+**psql errors with `relation already exists`**
 → The schema was already applied. This is safe — re-running is idempotent for `CREATE TABLE IF NOT EXISTS`. If you used plain `CREATE TABLE`, wrap DDL statements with `IF NOT EXISTS`.
 
 **SNS email not arriving**
