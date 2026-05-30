@@ -19,6 +19,7 @@ Region: `ap-south-1` (Mumbai).
 | CI/CD | GitHub Actions — fmt + validate on PR (Stage 1); plan + apply coming after AWS account setup |
 | Diagram | Visual architecture diagram — `design/aws-architecture-diagram.html` (git-ignored, local only) |
 | Setup Guide | AWS account setup guide — `design/aws-account-setup-guide.html` (git-ignored, local only) |
+| Connection Guide | Bastion SSM port forwarding + schema runner guide — `design/bastion-rds-connection-guide.html` (git-ignored, local only) |
 
 ---
 
