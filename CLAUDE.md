@@ -234,6 +234,9 @@ Target: Amazon RDS PostgreSQL 16 — database name `iravi_dashboard`
 
 `terraform.tfvars` is git-ignored. The pipeline reads these secrets as `TF_VAR_*` env vars instead — Terraform maps them automatically to the matching input variables.
 
+### Pipeline dependency: business-core checkout required in ALL jobs
+All three pipeline jobs (validate, plan, apply) must checkout `business-core` and create the symlink at `$GITHUB_WORKSPACE/../business-core`. Reason: Terraform's `filemd5()` and `archive_file` data sources reference Lambda source files in `business-core` and are evaluated at `terraform validate` time — not just at plan/apply. If business-core is missing, the validate job fails even though it doesn't need AWS credentials.
+
 ### Terraform outputs needed downstream
 After `terraform apply`, capture these — they are inputs to every Lambda built next:
 ```
