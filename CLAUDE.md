@@ -62,8 +62,8 @@ D:\Projects\Iravi\
 │               ├── monitoring.tf       ← SNS + 5 CloudWatch alarms
 │               ├── schema_runner.tf    ← removed (apply schema via SSM + psql)
 │               ├── bastion.tf          ← Bastion EC2 — SSM Session Manager, no SSH
-│               ├── lambda_etl_sales.tf ← ETL Lambda + S3 trigger (Phase 1); bucket notification shared with etl_stocks
-│               ├── lambda_etl_stocks.tf ← Stock balance ETL Lambda (S3 trigger piggybacked on etl_sales notification)
+│               ├── lambda_etl_sales.tf ← ETL Lambda + S3 trigger (Phase 1); bucket notification fans out to both etl_sales (suffix ").xlsx") and etl_stocks (suffix "Stocks.xlsx")
+│               ├── lambda_etl_stocks.tf ← Stock balance ETL Lambda (S3 trigger via shared notification in lambda_etl_sales.tf)
 │               ├── lambda_redis_updater.tf ← Redis Updater + EventBridge trigger
 │               └── lambda_api.tf       ← API Lambda + API Gateway HTTP API
 ├── business-core\                      ← separate repo (processing logic)
@@ -338,7 +338,7 @@ Every run writes a row to `etl_runs`: `run_date`, `started_at`, `completed_at`, 
 - [x] File Sync Agent — deployed and running on FUSIL PRO server · `D:\Projects\Iravi\FileSyncAgent\`
 - [x] business-core project created — `D:\Projects\Iravi\business-core\` with lambda scaffolds for etl_sales, redis_updater, api
 - [x] Terraform — Lambda resources (`lambda_etl_sales.tf`, `lambda_redis_updater.tf`, `lambda_api.tf`) with IAM, triggers, API Gateway
-- [x] Terraform — `lambda_etl_stocks.tf` — stock balance ETL Lambda; `lambda_etl_sales.tf` bucket notification extended to fan-out to both etl_sales and etl_stocks
+- [x] Terraform — `lambda_etl_stocks.tf` — stock balance ETL Lambda; `lambda_etl_sales.tf` bucket notification fans out to both Lambdas using non-overlapping suffixes (`).xlsx` for dated exports → etl_sales; `Stocks.xlsx` → etl_stocks). Phase 2 note: when additional ETL Lambdas are added for purchases/returns/expenses they will share the `).xlsx` suffix — switch to EventBridge or a dispatcher Lambda at that point.
 
 ## Strategy: Sales-First End-to-End
 
