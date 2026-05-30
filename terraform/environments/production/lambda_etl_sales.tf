@@ -132,10 +132,8 @@ resource "aws_lambda_permission" "s3_invoke_etl_sales" {
   source_arn    = aws_s3_bucket.data.arn
 }
 
-# All .xlsx uploads to raw/ trigger this Lambda.
-# The handler filters to sales files only via _is_sales_file().
-# When other file types are added in Phase 2, expand filter logic in the handler —
-# do NOT add separate bucket notifications (one notification resource per bucket).
+# All .xlsx uploads to raw/ fan out to both ETL Lambdas.
+# Each handler filters to its own file pattern — do NOT add more notification resources.
 resource "aws_s3_bucket_notification" "etl_trigger" {
   bucket = aws_s3_bucket.data.id
 
@@ -146,5 +144,15 @@ resource "aws_s3_bucket_notification" "etl_trigger" {
     filter_suffix       = ".xlsx"
   }
 
-  depends_on = [aws_lambda_permission.s3_invoke_etl_sales]
+  lambda_function {
+    lambda_function_arn = aws_lambda_function.etl_stocks.arn
+    events              = ["s3:ObjectCreated:*"]
+    filter_prefix       = "raw/"
+    filter_suffix       = ".xlsx"
+  }
+
+  depends_on = [
+    aws_lambda_permission.s3_invoke_etl_sales,
+    aws_lambda_permission.s3_invoke_etl_stocks,
+  ]
 }

@@ -43,7 +43,8 @@ D:\Projects\Iravi\
 │   ├── design/
 │   │   ├── stakeholder-presentation.html
 │   │   ├── aws-architecture-diagram.html
-│   │   └── aws-account-setup-guide.html
+│   │   ├── aws-account-setup-guide.html
+│   │   └── bastion-rds-connection-guide.html  ← SSM port forwarding + schema runner guide
 │   └── terraform/
 │       ├── bootstrap/
 │       │   └── main.tf                 ← creates S3 state bucket + DynamoDB lock (run once)
@@ -61,7 +62,8 @@ D:\Projects\Iravi\
 │               ├── monitoring.tf       ← SNS + 5 CloudWatch alarms
 │               ├── schema_runner.tf    ← removed (apply schema via SSM + psql)
 │               ├── bastion.tf          ← Bastion EC2 — SSM Session Manager, no SSH
-│               ├── lambda_etl_sales.tf ← ETL Lambda + S3 trigger (Phase 1)
+│               ├── lambda_etl_sales.tf ← ETL Lambda + S3 trigger (Phase 1); bucket notification shared with etl_stocks
+│               ├── lambda_etl_stocks.tf ← Stock balance ETL Lambda (S3 trigger piggybacked on etl_sales notification)
 │               ├── lambda_redis_updater.tf ← Redis Updater + EventBridge trigger
 │               └── lambda_api.tf       ← API Lambda + API Gateway HTTP API
 ├── business-core\                      ← separate repo (processing logic)
@@ -336,6 +338,7 @@ Every run writes a row to `etl_runs`: `run_date`, `started_at`, `completed_at`, 
 - [x] File Sync Agent — deployed and running on FUSIL PRO server · `D:\Projects\Iravi\FileSyncAgent\`
 - [x] business-core project created — `D:\Projects\Iravi\business-core\` with lambda scaffolds for etl_sales, redis_updater, api
 - [x] Terraform — Lambda resources (`lambda_etl_sales.tf`, `lambda_redis_updater.tf`, `lambda_api.tf`) with IAM, triggers, API Gateway
+- [x] Terraform — `lambda_etl_stocks.tf` — stock balance ETL Lambda; `lambda_etl_sales.tf` bucket notification extended to fan-out to both etl_sales and etl_stocks
 
 ## Strategy: Sales-First End-to-End
 
