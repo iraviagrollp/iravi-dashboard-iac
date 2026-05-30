@@ -11,6 +11,7 @@ terraform.tfvars
 
 # Lambda build artefacts generated at plan/apply time
 **/.lambda_build/
+**/.lambda_layers/
 
 # Invocation response files
 response.json

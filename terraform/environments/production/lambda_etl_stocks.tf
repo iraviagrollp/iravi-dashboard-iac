@@ -20,6 +20,35 @@ data "archive_file" "etl_stocks" {
   output_path = "${path.root}/.lambda_build/etl_stocks.zip"
 }
 
+# ── Dependency Layer ───────────────────────────────────────────────────────────
+# pip installs Linux-compatible wheels into .lambda_layers/etl_stocks/python/
+# during terraform apply (runs in GitHub Actions — no local install needed).
+# Triggered only when requirements.txt changes.
+
+resource "null_resource" "etl_stocks_deps" {
+  triggers = {
+    requirements_hash = filemd5("${path.root}/../../../../business-core/lambda/etl_stocks/requirements.txt")
+  }
+
+  provisioner "local-exec" {
+    command = "python -m pip install -r \"${path.root}/../../../../business-core/lambda/etl_stocks/requirements.txt\" -t \"${path.root}/.lambda_layers/etl_stocks/python\" --platform manylinux2014_x86_64 --implementation cp --python-version 3.12 --only-binary=:all: --upgrade --quiet"
+  }
+}
+
+data "archive_file" "etl_stocks_layer" {
+  type        = "zip"
+  source_dir  = "${path.root}/.lambda_layers/etl_stocks"
+  output_path = "${path.root}/.lambda_build/etl_stocks_layer.zip"
+  depends_on  = [null_resource.etl_stocks_deps]
+}
+
+resource "aws_lambda_layer_version" "etl_stocks_deps" {
+  filename            = data.archive_file.etl_stocks_layer.output_path
+  layer_name          = "${var.project}-etl-stocks-deps"
+  source_code_hash    = data.archive_file.etl_stocks_layer.output_base64sha256
+  compatible_runtimes = ["python3.12"]
+}
+
 # ── IAM ───────────────────────────────────────────────────────────────────────
 
 resource "aws_iam_role" "etl_stocks" {
@@ -90,6 +119,7 @@ resource "aws_lambda_function" "etl_stocks" {
   source_code_hash = data.archive_file.etl_stocks.output_base64sha256
   timeout          = local.etl_stocks_timeout
   memory_size      = local.etl_stocks_memory
+  layers           = [aws_lambda_layer_version.etl_stocks_deps.arn]
 
   vpc_config {
     subnet_ids         = aws_subnet.private[*].id
