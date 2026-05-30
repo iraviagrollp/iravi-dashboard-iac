@@ -116,6 +116,15 @@ jobs:
       - name: Link business-core to expected relative path
         run: ln -s "$GITHUB_WORKSPACE/business-core" "$GITHUB_WORKSPACE/../business-core"
 
+      - name: Build etl_stocks layer
+        run: |
+          mkdir -p terraform/environments/production/.lambda_layers/etl_stocks/python
+          pip install \
+            -r business-core/lambda/etl_stocks/requirements.txt \
+            -t terraform/environments/production/.lambda_layers/etl_stocks/python \
+            --platform manylinux2014_x86_64 --implementation cp --python-version 3.12 \
+            --only-binary=:all: --upgrade --quiet
+
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "~1.6"
@@ -185,6 +194,15 @@ jobs:
 
       - name: Link business-core to expected relative path
         run: ln -s "$GITHUB_WORKSPACE/business-core" "$GITHUB_WORKSPACE/../business-core"
+
+      - name: Build etl_stocks layer
+        run: |
+          mkdir -p terraform/environments/production/.lambda_layers/etl_stocks/python
+          pip install \
+            -r business-core/lambda/etl_stocks/requirements.txt \
+            -t terraform/environments/production/.lambda_layers/etl_stocks/python \
+            --platform manylinux2014_x86_64 --implementation cp --python-version 3.12 \
+            --only-binary=:all: --upgrade --quiet
 
       - uses: hashicorp/setup-terraform@v3
         with:
