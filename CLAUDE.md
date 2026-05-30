@@ -237,6 +237,9 @@ Target: Amazon RDS PostgreSQL 16 — database name `iravi_dashboard`
 ### Pipeline dependency: business-core checkout required in ALL jobs
 All three pipeline jobs (validate, plan, apply) must checkout `business-core` and create the symlink at `$GITHUB_WORKSPACE/../business-core`. Reason: Terraform's `filemd5()` and `archive_file` data sources reference Lambda source files in `business-core` and are evaluated at `terraform validate` time — not just at plan/apply. If business-core is missing, the validate job fails even though it doesn't need AWS credentials.
 
+### Lambda layer build pattern
+Do NOT use `null_resource` + `local-exec` provisioner to run pip install inside Terraform. `data "archive_file"` does not reliably wait for provisioner output even with `depends_on`, causing "missing directory" errors on first apply. Instead: run pip install as an explicit GitHub Actions workflow step (named "Build etl_stocks layer") before `terraform init` in the plan and apply jobs. The step creates `.lambda_layers/etl_stocks/python/` with Linux-compatible wheels; Terraform's `archive_file` then zips it up normally.
+
 ### Terraform outputs needed downstream
 After `terraform apply`, capture these — they are inputs to every Lambda built next:
 ```
