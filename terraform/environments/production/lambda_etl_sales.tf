@@ -141,14 +141,14 @@ resource "aws_s3_bucket_notification" "etl_trigger" {
     lambda_function_arn = aws_lambda_function.etl_sales.arn
     events              = ["s3:ObjectCreated:*"]
     filter_prefix       = "raw/"
-    filter_suffix       = ".xlsx"
+    filter_suffix       = ").xlsx"
   }
 
   lambda_function {
     lambda_function_arn = aws_lambda_function.etl_stocks.arn
     events              = ["s3:ObjectCreated:*"]
     filter_prefix       = "raw/"
-    filter_suffix       = ".xlsx"
+    filter_suffix       = "Stocks.xlsx"
   }
 
   depends_on = [
