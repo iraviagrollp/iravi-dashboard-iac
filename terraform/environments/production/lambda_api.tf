@@ -11,6 +11,23 @@ locals {
   api_memory  = 256
 }
 
+# ── Shared dependency layer (api + redis_updater) ─────────────────────────────
+# psycopg2-binary and redis-py must be linux-compatible wheels.
+# Built by the "Build api-deps layer" step in the GitHub Actions workflow.
+
+data "archive_file" "api_deps_layer" {
+  type        = "zip"
+  source_dir  = "${path.root}/.lambda_layers/api_deps"
+  output_path = "${path.root}/.lambda_build/api_deps_layer.zip"
+}
+
+resource "aws_lambda_layer_version" "api_deps" {
+  filename            = data.archive_file.api_deps_layer.output_path
+  layer_name          = "${var.project}-api-deps"
+  source_code_hash    = data.archive_file.api_deps_layer.output_base64sha256
+  compatible_runtimes = ["python3.12"]
+}
+
 # ── Packaging ─────────────────────────────────────────────────────────────────
 
 data "archive_file" "api" {
@@ -83,6 +100,7 @@ resource "aws_lambda_function" "api" {
   source_code_hash = data.archive_file.api.output_base64sha256
   timeout          = local.api_timeout
   memory_size      = local.api_memory
+  layers           = [aws_lambda_layer_version.api_deps.arn]
 
   vpc_config {
     subnet_ids         = aws_subnet.private[*].id
