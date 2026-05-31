@@ -93,6 +93,12 @@ resource "aws_iam_role_policy" "etl_stocks" {
         Action   = ["s3:ListBucket"]
         Resource = aws_s3_bucket.data.arn
       },
+      {
+        Sid      = "EventBridge"
+        Effect   = "Allow"
+        Action   = ["events:PutEvents"]
+        Resource = "*"
+      },
     ]
   })
 }
@@ -122,8 +128,9 @@ resource "aws_lambda_function" "etl_stocks" {
 
   environment {
     variables = {
-      DATA_BUCKET   = aws_s3_bucket.data.id
-      DB_SECRET_ARN = aws_secretsmanager_secret.db.arn
+      DATA_BUCKET    = aws_s3_bucket.data.id
+      DB_SECRET_ARN  = aws_secretsmanager_secret.db.arn
+      EVENT_BUS_NAME = "default"
       # RAW_PREFIX and PROCESSED_PREFIX use handler defaults (raw/ and processed/)
     }
   }

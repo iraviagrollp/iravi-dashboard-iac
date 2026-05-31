@@ -91,7 +91,7 @@ resource "aws_lambda_function" "redis_updater" {
   environment {
     variables = {
       DB_SECRET_ARN = aws_secretsmanager_secret.db.arn
-      # REDIS_HOST — added here once elasticache.tf is provisioned
+      REDIS_HOST    = aws_elasticache_cluster.main.cache_nodes[0].address
     }
   }
 
@@ -127,4 +127,30 @@ resource "aws_lambda_permission" "eventbridge_invoke_redis_updater" {
   function_name = aws_lambda_function.redis_updater.function_name
   principal     = "events.amazonaws.com"
   source_arn    = aws_cloudwatch_event_rule.etl_sales_success.arn
+}
+
+# ── ETLStocksSuccess trigger ──────────────────────────────────────────────────
+
+resource "aws_cloudwatch_event_rule" "etl_stocks_success" {
+  name        = "${var.project}-etl-stocks-success"
+  description = "Fires when etl_stocks Lambda emits ETLStocksSuccess"
+
+  event_pattern = jsonencode({
+    source      = ["iravi.etl"]
+    detail-type = ["ETLStocksSuccess"]
+  })
+}
+
+resource "aws_cloudwatch_event_target" "redis_updater_stocks" {
+  rule      = aws_cloudwatch_event_rule.etl_stocks_success.name
+  target_id = "RedisUpdaterLambdaStocks"
+  arn       = aws_lambda_function.redis_updater.arn
+}
+
+resource "aws_lambda_permission" "eventbridge_invoke_redis_updater_stocks" {
+  statement_id  = "AllowEventBridgeInvokeStocks"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.redis_updater.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.etl_stocks_success.arn
 }
