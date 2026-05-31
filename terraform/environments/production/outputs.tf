@@ -58,3 +58,8 @@ output "data_bucket_name" {
   description = "S3 data landing bucket — configure File Sync Agent to upload here under raw/{date}/"
   value       = aws_s3_bucket.data.id
 }
+
+output "elasticache_host" {
+  description = "ElastiCache Redis endpoint — already injected as REDIS_HOST into Lambda env vars"
+  value       = aws_elasticache_cluster.main.cache_nodes[0].address
+}

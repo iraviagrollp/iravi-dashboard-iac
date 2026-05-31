@@ -349,64 +349,39 @@ Every run writes a row to `etl_runs`: `run_date`, `started_at`, `completed_at`, 
 - [x] business-core project created — `D:\Projects\Iravi\business-core\` with lambda scaffolds for etl_sales, redis_updater, api
 - [x] Terraform — Lambda resources (`lambda_etl_sales.tf`, `lambda_redis_updater.tf`, `lambda_api.tf`) with IAM, triggers, API Gateway
 - [x] Terraform — `lambda_etl_stocks.tf` — stock balance ETL Lambda; `lambda_etl_sales.tf` bucket notification fans out to both Lambdas using non-overlapping suffixes (`).xlsx` for dated exports → etl_sales; `Stocks.xlsx` → etl_stocks). Phase 2 note: when additional ETL Lambdas are added for purchases/returns/expenses they will share the `).xlsx` suffix — switch to EventBridge or a dispatcher Lambda at that point.
+- [x] Terraform — `elasticache.tf` — ElastiCache Redis 7, `cache.t3.micro`, private subnets, `sg_elasticache` (already existed)
+- [x] Terraform — `lambda_etl_stocks.tf` updated — added `EVENT_BUS_NAME` env var + `events:PutEvents` IAM permission
+- [x] Terraform — `lambda_redis_updater.tf` updated — added `REDIS_HOST` env var; added `ETLStocksSuccess` EventBridge rule + target + permission
+- [x] Terraform — `lambda_api.tf` updated — added `REDIS_HOST` env var; added `GET /stocks/summary` and `GET /stocks/current` routes
+- [x] Terraform — `outputs.tf` updated — added `elasticache_host` output
+- [x] business-core — `etl_stocks/handler.py` — emits `ETLStocksSuccess` EventBridge event after successful DB upsert
+- [x] business-core — `redis_updater/handler.py` — fully implemented: handles `ETLStocksSuccess` (stocks cache) and `ETLSalesSuccess` (stub); writes `iravi:stocks:summary` + `iravi:stocks:current` to Redis with 24h TTL
+- [x] business-core — `api/handler.py` — fully implemented: `GET /stocks/summary` and `GET /stocks/current` with cache-aside (Redis → RDS fallback); `GET /sales` stub
+- [x] Dashboard UI — `D:\Projects\Iravi\ui\` — Vite + React + TypeScript + Tailwind; sidebar nav (Sales, Purchases, Stocks, Customers, Reports); Current Stocks page with 4 stat tiles + filterable/sortable table; deployed via AWS Amplify Hosting
 
-## Strategy: Sales-First End-to-End
+## Strategy: Stocks-First UI (updated 2026-05-31)
 
-**Decision (2026-05-26):** Build the full pipeline end-to-end for sales data only before expanding to other data types. Goal is to get comfortable with the complete flow (S3 → ETL → DB → Redis → API → UI) and give the team time to validate before adding purchases, stock, expenses, etc.
+**Stocks pipeline is complete end-to-end.** Current Stocks UI is built and ready to deploy. Redis cache is populated nightly by redis_updater after `ETLStocksSuccess` event.
 
-Scope for this phase:
-- File: `RGF Sales Book*.xlsx` only
-- Table: `fact_sales` + `dim_customers` (FK dependency)
-- Trigger: direct S3 `ObjectCreated` event on the sales file (no manifest needed for single-file flow)
-- API: `/sales` endpoint only
-- UI: Sales Analytics view only
+**Redis key schema (stocks):**
+- `iravi:stocks:summary` — `{total_kgs, total_vols, stock_valuation, total_products, as_of, updated_at}`, 24h TTL
+- `iravi:stocks:current` — JSON array of all active `snapshot_stock` rows, 24h TTL
+- Unit classification for tiles: packing_size scanned for `KG|GMS|GM` (weight) vs `LTR|LT|ML|L` (volume) using Python regex
+
+**UI stack decision:** Vite + React + TypeScript + Tailwind CSS. No shadcn/ui dependency — components written in plain Tailwind. Client-side filtering/sorting on the ~500-row dataset (no extra API calls needed).
 
 ## What Is Next (build in this order)
 
-- [ ] **ElastiCache Redis** — add Terraform in `environments/production/`
-  - Engine: Redis 7.x
-  - Node: `cache.t3.micro`
-  - Subnet group using existing private subnets
-  - Security group: `sg_elasticache_id` (already created)
+- [ ] **Deploy Terraform** — apply `elasticache.tf` + updated Lambda configs via GitHub Actions; capture `elasticache_host` output
+- [ ] **Deploy UI** — connect `D:\Projects\Iravi\ui\` to AWS Amplify Hosting; set `VITE_API_BASE_URL` in Amplify console to value of `terraform output api_endpoint`
+- [ ] **Test stocks flow end-to-end** — upload real `Current Stock Balances*.xlsx` to `raw/` in S3, verify `snapshot_stock` rows in RDS, verify Redis keys populate, verify UI tiles + table render correctly
 
-- [ ] **ETL Lambda — Sales only (Phase 1)**
-  - Runtime: Python 3.12
-  - Triggered by S3 `ObjectCreated` on `RGF Sales Book*.xlsx` (no manifest — single file)
-  - Parses sales file: skip rows 1–5, detect/skip total rows
-  - Columns: `Date, Voucher No, Branch, Party, Party GSTN, Qty, Gross, Disc, AV, CGST, SGST, IGST, Net, BillValue`
-  - Upserts `dim_customers` (on `customer_name`) then `fact_sales` (on `voucher_no, transaction_date`)
-  - Writes success/failure to `etl_runs`
-  - Emits EventBridge event on success → triggers Redis Updater
-  - Moves file from `raw/` to `processed/` on success
-  - Attach: `sg_lambda_id`, `private_subnet_ids`, `db_secret_arn`
-  - Expand to all 8 file types in Phase 2
+- [ ] **Implement etl_sales handler** — parse `RGF Sales Book*.xlsx` (skip rows 1–5, detect total rows); upsert `dim_customers` + `fact_sales`; emit `ETLSalesSuccess`; move file to `processed/`
+- [ ] **Implement `_update_sales_cache()`** in redis_updater once etl_sales is verified
 
-- [ ] **Redis Updater Lambda**
-  - Triggered by ETL success EventBridge event
-  - Reads key metrics from Dashboard DB
-  - Writes to ElastiCache with 7-day TTL
-  - Key schema: `dashboard:{view}:{date}`
+- [ ] **Cognito** — add Terraform; JWT authoriser on API Gateway; Amplify Authenticator in UI
 
-- [ ] **API Layer — Sales only (Phase 1)**
-  - API Gateway + Lambda (Python 3.12)
-  - Cognito JWT authoriser
-  - RBAC middleware: decode JWT → check Cognito group → enforce access
-  - Cache-aside: Redis fast path → Dashboard DB fallback → populate Redis
-  - Endpoint: `/sales` only — expand to full endpoint set in Phase 2
-
-- [ ] **Cognito** — add Terraform
-  - User pool + App Client
-  - Groups: `admin`, `finance`, `operations`, `viewer`
-
-- [ ] **Dashboard UI — Sales Analytics view (Phase 1)**
-  - React + AWS Amplify
-  - Cognito hosted login
-  - Sales Analytics view only — expand to all 6 views in Phase 2
-
-- [ ] **One-time historical migration**
-  - Export 1 month of transaction files from FUSIL PRO
-  - Run through ETL Lambda manually (or batch script)
-  - Stock history: not available — starts from go-live
+- [ ] **One-time historical migration** — 1 month of transaction files through ETL Lambda; stock history starts from go-live
 
 ---
 

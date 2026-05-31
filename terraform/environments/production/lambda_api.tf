@@ -92,7 +92,7 @@ resource "aws_lambda_function" "api" {
   environment {
     variables = {
       DB_SECRET_ARN = aws_secretsmanager_secret.db.arn
-      # REDIS_HOST — added once elasticache.tf is provisioned
+      REDIS_HOST    = aws_elasticache_cluster.main.cache_nodes[0].address
     }
   }
 
@@ -134,6 +134,18 @@ resource "aws_apigatewayv2_integration" "api_lambda" {
 resource "aws_apigatewayv2_route" "sales" {
   api_id    = aws_apigatewayv2_api.main.id
   route_key = "GET /sales"
+  target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "stocks_summary" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "GET /stocks/summary"
+  target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "stocks_current" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "GET /stocks/current"
   target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
 }
 
