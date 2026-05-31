@@ -125,6 +125,15 @@ jobs:
             --platform manylinux2014_x86_64 --implementation cp --python-version 3.12 \
             --only-binary=:all: --upgrade --quiet
 
+      - name: Build api-deps layer
+        run: |
+          mkdir -p terraform/environments/production/.lambda_layers/api_deps/python
+          pip install \
+            -r business-core/lambda/api/requirements.txt \
+            -t terraform/environments/production/.lambda_layers/api_deps/python \
+            --platform manylinux2014_x86_64 --implementation cp --python-version 3.12 \
+            --only-binary=:all: --upgrade --quiet
+
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "~1.6"
@@ -201,6 +210,15 @@ jobs:
           pip install \
             -r business-core/lambda/etl_stocks/requirements.txt \
             -t terraform/environments/production/.lambda_layers/etl_stocks/python \
+            --platform manylinux2014_x86_64 --implementation cp --python-version 3.12 \
+            --only-binary=:all: --upgrade --quiet
+
+      - name: Build api-deps layer
+        run: |
+          mkdir -p terraform/environments/production/.lambda_layers/api_deps/python
+          pip install \
+            -r business-core/lambda/api/requirements.txt \
+            -t terraform/environments/production/.lambda_layers/api_deps/python \
             --platform manylinux2014_x86_64 --implementation cp --python-version 3.12 \
             --only-binary=:all: --upgrade --quiet
 

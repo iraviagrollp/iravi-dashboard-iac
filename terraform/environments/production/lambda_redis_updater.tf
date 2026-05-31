@@ -82,6 +82,7 @@ resource "aws_lambda_function" "redis_updater" {
   source_code_hash = data.archive_file.redis_updater.output_base64sha256
   timeout          = local.redis_updater_timeout
   memory_size      = local.redis_updater_memory
+  layers           = [aws_lambda_layer_version.api_deps.arn]
 
   vpc_config {
     subnet_ids         = aws_subnet.private[*].id
