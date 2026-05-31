@@ -76,6 +76,12 @@ resource "aws_iam_role_policy" "etl_stocks" {
         Resource = "arn:aws:logs:${var.aws_region}:*:log-group:/aws/lambda/${local.etl_stocks_name}:*"
       },
       {
+        Sid      = "SecretsManager"
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue"]
+        Resource = aws_secretsmanager_secret.db.arn
+      },
+      {
         Sid      = "S3Data"
         Effect   = "Allow"
         Action   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
@@ -116,7 +122,8 @@ resource "aws_lambda_function" "etl_stocks" {
 
   environment {
     variables = {
-      DATA_BUCKET = aws_s3_bucket.data.id
+      DATA_BUCKET   = aws_s3_bucket.data.id
+      DB_SECRET_ARN = aws_secretsmanager_secret.db.arn
       # RAW_PREFIX and PROCESSED_PREFIX use handler defaults (raw/ and processed/)
     }
   }
