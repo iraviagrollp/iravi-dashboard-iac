@@ -187,14 +187,15 @@ Target: Amazon RDS PostgreSQL 16 — database name `iravi_dashboard`
 | `fact_purchases` | Fact (daily append) | `(voucher_no, transaction_date)` |
 | `fact_purchase_returns` | Fact (daily append) | `(voucher_no, transaction_date, product_name)` |
 | `fact_expenses` | Fact (daily append) | `(voucher_no, transaction_date)` |
-| `snapshot_stock` | Snapshot (replace per date) | `(snapshot_date, product_brand_name, packing_id)` |
+| `snapshot_stock` | Snapshot (uni-temporal milestoned) | natural key `(brand, technical, packing_size, packing_configuration, branch, special_packing_mention, entry_date)` + `in_z`; `out_z IS NULL` = current |
 | `snapshot_stock_margin` | Snapshot (replace per date) | `(snapshot_date, product_brand_name, packing_id)` |
 | `snapshot_customer_balances` | Snapshot (replace per date) | `(snapshot_date, branch, customer_name)` |
 | `etl_runs` | Audit | `run_date` |
 
 ### Key schema decisions
 - `source_date` was **removed** — lineage tracked via `ingested_at` + `etl_runs.files_processed`
-- `dim_packings` normalises packing strings (`10x1 KG`, `20x500 GM`, etc.) — `snapshot_stock` and `snapshot_stock_margin` reference via `packing_id` FK
+- `dim_packings` normalises packing strings — now only used by `snapshot_stock_margin`; `snapshot_stock` dropped its `packing_id` FK (packing stored as `packing_size` + `packing_configuration` directly, matching process.py output)
+- `snapshot_stock` uses **uni-temporal milestoning** (`in_z`/`out_z`): on re-run for the same `entry_date`, the old row is closed (`out_z = NOW()`) and a fresh row inserted (`in_z = NOW(), out_z = NULL`). A partial unique index on `WHERE out_z IS NULL` enforces exactly one active record per natural key. Superseded rows are retained for audit.
 - `dim_customers` has no `address1/2/3` — only `city`, `state`, `pin` retained
 - `fact_sales_returns` has no `party_group`, `party_address`, `party_mobile` — joinable from `dim_customers`
 - `snapshot_customer_balances.balance_amount` is always positive numeric; direction in `balance_type` (`'Dr'`/`'Cr'`)

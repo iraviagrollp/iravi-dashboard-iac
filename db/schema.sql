@@ -203,12 +203,12 @@ CREATE INDEX idx_expenses_branch ON fact_expenses (branch);
 
 -- ============================================================
 -- SNAPSHOT TABLES
--- Full replace per snapshot_date on each daily run.
+-- snapshot_stock: uni-temporal milestoned (in_z/out_z) — see table comment.
+-- snapshot_stock_margin, snapshot_customer_balances: full replace per snapshot_date.
 -- ============================================================
 
--- Packing formats are shared across many products and snapshots.
--- Normalised here to avoid string duplication and enable pack-size filtering.
--- ETL inserts new packings on first encounter (INSERT ... ON CONFLICT DO NOTHING).
+-- Used by snapshot_stock_margin only. snapshot_stock no longer normalises packings —
+-- packing is stored as (packing_size, packing_configuration) columns directly.
 CREATE TABLE dim_packings (
     id                      SERIAL PRIMARY KEY,
     packing_description     VARCHAR(100)    NOT NULL,
@@ -218,32 +218,43 @@ CREATE TABLE dim_packings (
 );
 
 
--- Stocks sheet from Stocks.xlsx.
--- ETL forward-fills product_brand_name and s_no down packing sub-rows before inserting.
--- product_chemical_name is populated where the sub-row carries the chemical description.
+-- Processed stock output (from etl_stocks Lambda / process.py _OUTPUT_HEADERS).
+-- Natural key: (brand, technical, packing_size, packing_configuration,
+--               branch, special_packing_mention, entry_date).
+-- Uni-temporal milestoning: in_z/out_z track versions of the same natural key.
+--   out_z IS NULL  → current (active) record.
+--   out_z IS NOT NULL → superseded; kept for audit history.
+-- When a re-run delivers the same entry_date, the old row is closed (out_z = NOW())
+-- and a fresh row is inserted (in_z = NOW(), out_z = NULL).
 CREATE TABLE snapshot_stock (
     id                      SERIAL PRIMARY KEY,
-    snapshot_date           DATE            NOT NULL,
-    s_no                    INTEGER,
-    product_brand_name      VARCHAR(200)    NOT NULL,
-    product_chemical_name   TEXT,
-    packing_id              INTEGER         NOT NULL REFERENCES dim_packings(id),
-    qty_ap_current          NUMERIC(12, 3),
-    qty_ts_current          NUMERIC(12, 3),
-    qty_ap_previous         NUMERIC(12, 3),
-    qty_ts_previous         NUMERIC(12, 3),
-    total_qty_current       NUMERIC(12, 3),
-    total_qty_previous      NUMERIC(12, 3),
-    rate                    NUMERIC(12, 4),
-    opening_value           NUMERIC(15, 2),
-    closing_value           NUMERIC(15, 2),
-    ingested_at             TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
-
-    CONSTRAINT uq_stock UNIQUE (snapshot_date, product_brand_name, packing_id)
+    brand                   VARCHAR(200)    NOT NULL,
+    technical               VARCHAR(300)    NOT NULL,
+    packing_size            NUMERIC(12, 4)  NOT NULL,   -- base unit: grams or ml
+    packing_configuration   VARCHAR(10)     NOT NULL,   -- 'gms' or 'ml'
+    available_nos           NUMERIC(12, 3)  NOT NULL,
+    conversion_factor       NUMERIC(12, 4),
+    available_cases         NUMERIC(12, 4),
+    available_qty           NUMERIC(15, 2),             -- packing_size × available_nos
+    branch                  VARCHAR(100)    NOT NULL,
+    special_packing_mention VARCHAR(100)    NOT NULL DEFAULT 'NA',
+    entry_date              DATE            NOT NULL,
+    rate                    NUMERIC(12, 4),             -- purchase price; NULL when rates file absent
+    stock_valuation         NUMERIC(15, 2),             -- available_nos × rate; NULL when rate NULL
+    in_z                    TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    out_z                   TIMESTAMPTZ                 -- NULL = current record
 );
 
-CREATE INDEX idx_stock_date    ON snapshot_stock (snapshot_date);
-CREATE INDEX idx_stock_product ON snapshot_stock (product_brand_name);
+-- Only one active version per natural key at a time.
+CREATE UNIQUE INDEX uix_stock_active
+    ON snapshot_stock (brand, technical, packing_size, packing_configuration,
+                       branch, special_packing_mention, entry_date)
+    WHERE out_z IS NULL;
+
+CREATE INDEX idx_stock_entry_date ON snapshot_stock (entry_date);
+CREATE INDEX idx_stock_brand      ON snapshot_stock (brand);
+CREATE INDEX idx_stock_branch     ON snapshot_stock (branch);
+CREATE INDEX idx_stock_out_z      ON snapshot_stock (out_z) WHERE out_z IS NULL;
 
 
 -- Margin 03-04 sheet from Stocks.xlsx.
