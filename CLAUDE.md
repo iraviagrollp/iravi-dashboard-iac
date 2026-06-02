@@ -213,9 +213,9 @@ Target: Amazon RDS PostgreSQL 16 — database name `iravi_dashboard`
 |---|---|
 | `sg_lambda_id` | Attached to all Lambda functions |
 | `sg_rds_id` | RDS — inbound from Lambda SG + bastion SG |
-| `sg_elasticache_id` | ElastiCache — inbound from Lambda SG only |
+| `sg_elasticache_id` | ElastiCache — inbound from Lambda SG + bastion SG |
 | `sg_vpc_endpoints` | VPC Interface endpoint ENIs — inbound 443 from Lambda SG only |
-| `sg_bastion` | Bastion EC2 — outbound 443 (SSM) + outbound 5432 to RDS. No inbound rules. |
+| `sg_bastion` | Bastion EC2 — outbound 443 (SSM) + outbound 5432 to RDS + outbound 6379 to ElastiCache. No inbound rules. |
 
 **Important:** Always use `sg_vpc_endpoints` (not `sg_lambda_id`) as the `security_group_ids` for any Interface VPC endpoint. Interface endpoint ENIs need an inbound rule; `sg_lambda_id` has none.
 

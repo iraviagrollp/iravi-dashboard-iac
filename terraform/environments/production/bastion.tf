@@ -50,6 +50,16 @@ resource "aws_security_group_rule" "bastion_to_rds" {
   source_security_group_id = aws_security_group.rds.id
 }
 
+resource "aws_security_group_rule" "bastion_to_elasticache" {
+  type                     = "egress"
+  description              = "Redis to ElastiCache"
+  from_port                = 6379
+  to_port                  = 6379
+  protocol                 = "tcp"
+  security_group_id        = aws_security_group.bastion.id
+  source_security_group_id = aws_security_group.elasticache.id
+}
+
 resource "aws_security_group_rule" "bastion_https_outbound" {
   type              = "egress"
   description       = "HTTPS outbound for SSM agent and OS updates"
@@ -69,6 +79,18 @@ resource "aws_security_group_rule" "rds_from_bastion" {
   to_port                  = 5432
   protocol                 = "tcp"
   security_group_id        = aws_security_group.rds.id
+  source_security_group_id = aws_security_group.bastion.id
+}
+
+# ── ElastiCache - allow inbound from bastion ──────────────────────────────────
+
+resource "aws_security_group_rule" "elasticache_from_bastion" {
+  type                     = "ingress"
+  description              = "Redis from bastion (SSM port-forwarding for local inspection)"
+  from_port                = 6379
+  to_port                  = 6379
+  protocol                 = "tcp"
+  security_group_id        = aws_security_group.elasticache.id
   source_security_group_id = aws_security_group.bastion.id
 }
 
