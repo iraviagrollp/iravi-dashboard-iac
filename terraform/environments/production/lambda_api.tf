@@ -129,8 +129,7 @@ resource "aws_apigatewayv2_api" "main" {
   protocol_type = "HTTP"
 
   cors_configuration {
-    # Restrict to Amplify domain once UI is deployed
-    allow_origins = ["*"]
+    allow_origins = ["https://dashboard.iraviagrolife.com"]
     allow_methods = ["GET", "OPTIONS"]
     allow_headers = ["Authorization", "Content-Type"]
   }

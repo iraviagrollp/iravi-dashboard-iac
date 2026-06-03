@@ -8,6 +8,11 @@ alert_email  = "your-email@example.com"
 # Adjust instance class if needed
 db_instance_class = "db.t3.small"
 
+# Dashboard UI — Amplify hosting
+amplify_github_repo = "https://github.com/YOUR_GITHUB_USERNAME/YOUR_REPO_NAME"
+dashboard_username  = "admin"
+dashboard_password  = "change-me-strong-password"
+
 # Bastion host — required for SQL client access to RDS
 # 1. Create key pair in AWS Console → EC2 → Key Pairs → Create key pair
 #    Name: iravi-dashboard-bastion  Format: .pem  → Download and store safely

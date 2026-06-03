@@ -59,6 +59,11 @@ output "data_bucket_name" {
   value       = aws_s3_bucket.data.id
 }
 
+output "amplify_default_domain" {
+  description = "Amplify-assigned domain for the dashboard UI"
+  value       = "https://${aws_amplify_app.dashboard.default_domain}"
+}
+
 output "elasticache_host" {
   description = "ElastiCache Redis endpoint — already injected as REDIS_HOST into Lambda env vars"
   value       = aws_elasticache_cluster.main.cache_nodes[0].address
