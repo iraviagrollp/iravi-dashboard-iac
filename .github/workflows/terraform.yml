@@ -102,7 +102,9 @@ jobs:
       pull-requests: write
 
     env:
-      TF_VAR_alert_email: ${{ secrets.TF_VAR_alert_email }}
+      TF_VAR_alert_email:          ${{ secrets.TF_VAR_alert_email }}
+      TF_VAR_dashboard_username:   ${{ secrets.TF_VAR_dashboard_username }}
+      TF_VAR_dashboard_password:   ${{ secrets.TF_VAR_dashboard_password }}
 
     steps:
       - uses: actions/checkout@v4
@@ -190,7 +192,9 @@ jobs:
       contents: read
 
     env:
-      TF_VAR_alert_email: ${{ secrets.TF_VAR_alert_email }}
+      TF_VAR_alert_email:          ${{ secrets.TF_VAR_alert_email }}
+      TF_VAR_dashboard_username:   ${{ secrets.TF_VAR_dashboard_username }}
+      TF_VAR_dashboard_password:   ${{ secrets.TF_VAR_dashboard_password }}
 
     steps:
       - uses: actions/checkout@v4
