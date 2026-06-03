@@ -63,3 +63,21 @@ variable "alert_email" {
   type        = string
 }
 
+variable "amplify_github_repo" {
+  description = "GitHub repository URL for the dashboard UI (https://github.com/owner/repo)"
+  type        = string
+  default     = "https://github.com/iraviagrollp/iravi-ui"
+}
+
+variable "dashboard_username" {
+  description = "Login username for the dashboard UI"
+  type        = string
+  sensitive   = true
+}
+
+variable "dashboard_password" {
+  description = "Login password for the dashboard UI"
+  type        = string
+  sensitive   = true
+}
+
