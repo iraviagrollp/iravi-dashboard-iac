@@ -17,6 +17,7 @@ WHERE out_z IS NULL
       SELECT MAX(in_z)
       FROM customer_ledger c2
       WHERE c2.transaction_date = c.transaction_date
+        AND c2.voucher_no       = c.voucher_no
         AND c2.account_name     = c.account_name
         AND c2.category         = c.category
         AND c2.sub_category     = c.sub_category

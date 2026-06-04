@@ -300,7 +300,7 @@ CREATE INDEX idx_customer_balances_branch   ON snapshot_customer_balances (branc
 
 
 -- Customer Accounts Export File. One row per transaction entry.
--- Natural key: (transaction_date, account_name, category, sub_category).
+-- Natural key: (transaction_date, voucher_no, account_name, category, sub_category).
 -- Uni-temporal milestoning: in_z/out_z track versions of the same natural key.
 --   out_z IS NULL  → current (active) record.
 --   out_z IS NOT NULL → superseded; kept for audit history.
@@ -308,6 +308,7 @@ CREATE INDEX idx_customer_balances_branch   ON snapshot_customer_balances (branc
 CREATE TABLE customer_ledger (
     id              SERIAL PRIMARY KEY,
     transaction_date DATE           NOT NULL,
+    voucher_no      VARCHAR(50)     NOT NULL,
     account_name    VARCHAR(200)    NOT NULL,
     category        VARCHAR(10)     NOT NULL,
     sub_category    VARCHAR(100)    NOT NULL,
@@ -318,7 +319,7 @@ CREATE TABLE customer_ledger (
 
 -- Only one active version per natural key at a time.
 CREATE UNIQUE INDEX uix_customer_ledger_active
-    ON customer_ledger (transaction_date, account_name, category, sub_category)
+    ON customer_ledger (transaction_date, voucher_no, account_name, category, sub_category)
     WHERE out_z IS NULL;
 
 CREATE INDEX idx_customer_ledger_date    ON customer_ledger (transaction_date);
