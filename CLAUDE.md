@@ -39,7 +39,10 @@ D:\Projects\Iravi\
 │   ├── .gitignore
 │   ├── db/
 │   │   ├── schema.sql                  ← PostgreSQL DDL (FINALIZED)
-│   │   └── schema.mmd                  ← Mermaid class diagram of schema
+│   │   ├── schema.mmd                  ← Mermaid class diagram of schema
+│   │   └── migrations/                 ← numbered DML repair/migration scripts (run manually via psql)
+│   │       ├── 001_repair_snapshot_stock_duplicates.sql
+│   │       └── 002_repair_customer_ledger_duplicates.sql
 │   ├── design/
 │   │   ├── stakeholder-presentation.html
 │   │   ├── aws-architecture-diagram.html
@@ -190,7 +193,11 @@ Target: Amazon RDS PostgreSQL 16 — database name `iravi_dashboard`
 | `snapshot_stock` | Snapshot (uni-temporal milestoned) | natural key `(brand, technical, packing_size, packing_configuration, branch, special_packing_mention, entry_date)` + `in_z`; `out_z IS NULL` = current |
 | `snapshot_stock_margin` | Snapshot (replace per date) | `(snapshot_date, product_brand_name, packing_id)` |
 | `snapshot_customer_balances` | Snapshot (replace per date) | `(snapshot_date, branch, customer_name)` |
+| `customer_ledger` | Snapshot (uni-temporal milestoned) | natural key `(transaction_date, account_name, category, sub_category)`; `out_z IS NULL` = current |
 | `etl_runs` | Audit | `run_date` |
+
+### Migrations convention
+One-off DML repairs and data fixes live in `db/migrations/` as numbered SQL files (`001_...`, `002_...`). They are not run automatically — apply manually via psql through the SSM tunnel. Always commit the migration file alongside the code change that made it necessary so the git history explains why it was run.
 
 ### Key schema decisions
 - `source_date` was **removed** — lineage tracked via `ingested_at` + `etl_runs.files_processed`
@@ -358,6 +365,8 @@ Every run writes a row to `etl_runs`: `run_date`, `started_at`, `completed_at`, 
 - [x] business-core — `redis_updater/handler.py` — fully implemented: handles `ETLStocksSuccess` (stocks cache) and `ETLSalesSuccess` (stub); writes `iravi:stocks:summary` + `iravi:stocks:current` to Redis with 24h TTL
 - [x] business-core — `api/handler.py` — fully implemented: `GET /stocks/summary` and `GET /stocks/current` with cache-aside (Redis → RDS fallback); `GET /sales` stub
 - [x] Dashboard UI — `D:\Projects\Iravi\ui\` — Vite + React + TypeScript + Tailwind; sidebar nav (Sales, Purchases, Stocks, Customers, Reports); Current Stocks page with 4 stat tiles + filterable/sortable table; deployed via AWS Amplify Hosting
+- [x] DB migrations folder — `db/migrations/` established; `001_repair_snapshot_stock_duplicates.sql` closes pre-index duplicate `out_z IS NULL` rows (applied 2026-06-03)
+- [x] DB migrations — `002_repair_customer_ledger_duplicates.sql` — defensive duplicate-close script for `customer_ledger` (not yet applied; run if ETL ever inserts without milestoning)
 
 ## Strategy: Stocks-First UI (updated 2026-05-31)
 
