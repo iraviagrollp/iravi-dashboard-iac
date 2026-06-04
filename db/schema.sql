@@ -299,6 +299,33 @@ CREATE INDEX idx_customer_balances_customer ON snapshot_customer_balances (custo
 CREATE INDEX idx_customer_balances_branch   ON snapshot_customer_balances (branch);
 
 
+-- Customer Accounts Export File. One row per transaction entry.
+-- Natural key: (transaction_date, account_name, category, sub_category).
+-- Uni-temporal milestoning: in_z/out_z track versions of the same natural key.
+--   out_z IS NULL  → current (active) record.
+--   out_z IS NOT NULL → superseded; kept for audit history.
+-- category: 'Cr' = credit entry, 'Db' = debit entry.
+CREATE TABLE customer_ledger (
+    id              SERIAL PRIMARY KEY,
+    transaction_date DATE           NOT NULL,
+    account_name    VARCHAR(200)    NOT NULL,
+    category        VARCHAR(10)     NOT NULL,
+    sub_category    VARCHAR(100)    NOT NULL,
+    amount          NUMERIC(15, 2)  NOT NULL,
+    in_z            TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    out_z           TIMESTAMPTZ                 -- NULL = current record
+);
+
+-- Only one active version per natural key at a time.
+CREATE UNIQUE INDEX uix_customer_ledger_active
+    ON customer_ledger (transaction_date, account_name, category, sub_category)
+    WHERE out_z IS NULL;
+
+CREATE INDEX idx_customer_ledger_date    ON customer_ledger (transaction_date);
+CREATE INDEX idx_customer_ledger_account ON customer_ledger (account_name);
+CREATE INDEX idx_customer_ledger_out_z   ON customer_ledger (out_z) WHERE out_z IS NULL;
+
+
 -- ============================================================
 -- ETL AUDIT
 -- Tracks every pipeline run for alerting and replay purposes.

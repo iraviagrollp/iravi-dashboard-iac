@@ -145,6 +145,12 @@ You should see your account ID and IAM user ARN.
 IaC/
 ├── README.md
 ├── .gitignore
+├── db/
+│   ├── schema.sql                  ← PostgreSQL DDL — apply once on fresh DB
+│   ├── schema.mmd                  ← Mermaid ER diagram
+│   └── migrations/                 ← Numbered DML repair scripts — apply manually via psql
+│       ├── 001_repair_snapshot_stock_duplicates.sql
+│       └── 002_repair_customer_ledger_duplicates.sql
 └── terraform/
     ├── bootstrap/                  ← Run ONCE first — creates remote state storage
     │   └── main.tf
@@ -352,6 +358,16 @@ When a schema change is needed (e.g. adding a column to `fact_expenses`):
 ```bash
 psql "host=localhost port=5432 dbname=iravi_dashboard user=dashboard_admin password='<password>' sslmode=require" -f db/schema.sql
 ```
+
+## Applying Migrations
+
+One-off DML repairs live in `db/migrations/` as numbered files. They are **not run automatically** — apply them manually when needed:
+
+```bash
+psql "host=localhost port=5432 dbname=iravi_dashboard user=dashboard_admin password='<password>' sslmode=require" -f db/migrations/001_repair_snapshot_stock_duplicates.sql
+```
+
+Each migration file includes a comment explaining what it fixes and when it was applied. Run migrations in order (001, 002, …). They are idempotent — safe to re-run.
 
 ---
 
