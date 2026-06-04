@@ -65,14 +65,17 @@ D:\Projects\Iravi\
 │               ├── monitoring.tf       ← SNS + 5 CloudWatch alarms
 │               ├── schema_runner.tf    ← removed (apply schema via SSM + psql)
 │               ├── bastion.tf          ← Bastion EC2 — SSM Session Manager, no SSH
-│               ├── lambda_etl_sales.tf ← ETL Lambda + S3 trigger (Phase 1); bucket notification fans out to both etl_sales (suffix ").xlsx") and etl_stocks (suffix "Stocks.xlsx")
+│               ├── lambda_etl_sales.tf ← ETL Lambda + shared S3 bucket notification (fans out to etl_sales on prefix "raw/RGF Sales Book", etl_stocks on "raw/Current", etl_customer_ledger on "raw/Ledger")
 │               ├── lambda_etl_stocks.tf ← Stock balance ETL Lambda (S3 trigger via shared notification in lambda_etl_sales.tf)
+│               ├── lambda_etl_customer_ledger.tf ← Customer Ledger ETL Lambda (S3 trigger via shared notification; upserts customer_ledger with uni-temporal milestoning)
 │               ├── lambda_redis_updater.tf ← Redis Updater + EventBridge trigger
-│               └── lambda_api.tf       ← API Lambda + API Gateway HTTP API
+│               ├── lambda_api.tf       ← API Lambda + API Gateway HTTP API (CORS: dashboard.iraviagrolife.com)
+│               └── amplify.tf          ← Amplify app env vars (VITE_API_BASE_URL, VITE_DASHBOARD_USERNAME, VITE_DASHBOARD_PASSWORD); ONE-TIME import required before first apply
 ├── business-core\                      ← separate repo (processing logic)
 │   ├── CLAUDE.md
 │   └── lambda\
 │       ├── etl_sales\                  ← Phase 1 active build target
+│       ├── etl_customer_ledger\        ← Customer ledger ETL (handler + layer — scaffold needed)
 │       ├── redis_updater\
 │       └── api\
 └── FileSyncAgent\                      ← separate repo (deployed on FUSIL PRO server)
@@ -239,6 +242,8 @@ One-off DML repairs and data fixes live in `db/migrations/` as numbered SQL file
 |---|---|
 | `AWS_ROLE_ARN` | OIDC: pipeline assumes `terraform-deployer` IAM role to authenticate with AWS |
 | `TF_VAR_alert_email` | Terraform `alert_email` variable — SNS CloudWatch alarm email |
+| `TF_VAR_dashboard_username` | Terraform `dashboard_username` variable — injected into Amplify as `VITE_DASHBOARD_USERNAME` |
+| `TF_VAR_dashboard_password` | Terraform `dashboard_password` variable — injected into Amplify as `VITE_DASHBOARD_PASSWORD` |
 
 `terraform.tfvars` is git-ignored. The pipeline reads these secrets as `TF_VAR_*` env vars instead — Terraform maps them automatically to the matching input variables.
 
@@ -249,7 +254,19 @@ All three pipeline jobs (validate, plan, apply) must checkout `business-core` an
 S3 notification filter prefixes containing spaces (e.g. `raw/Current Stock Balances`) silently fail to match even when the object key is correct. Use a prefix that stops before the first space (`raw/Current` instead of `raw/Current Stock Balances`). The Lambda handler must URL-decode the S3 event key with `unquote_plus()` because S3 delivers keys URL-encoded (`Current+Stock+Balances...` with `%28`/`%29` for parentheses) — the raw key from `record['s3']['object']['key']` cannot be used directly for filename comparisons or boto3 S3 calls.
 
 ### Lambda layer build pattern
-Do NOT use `null_resource` + `local-exec` provisioner to run pip install inside Terraform. `data "archive_file"` does not reliably wait for provisioner output even with `depends_on`, causing "missing directory" errors on first apply. Instead: run pip install as an explicit GitHub Actions workflow step (named "Build etl_stocks layer") before `terraform init` in the plan and apply jobs. The step creates `.lambda_layers/etl_stocks/python/` with Linux-compatible wheels; Terraform's `archive_file` then zips it up normally.
+Do NOT use `null_resource` + `local-exec` provisioner to run pip install inside Terraform. `data "archive_file"` does not reliably wait for provisioner output even with `depends_on`, causing "missing directory" errors on first apply. Instead: run pip install as an explicit GitHub Actions workflow step before `terraform init` in the plan and apply jobs. Each Lambda with a dependency layer gets its own named CI step. Current layers:
+- `etl_stocks` → `.lambda_layers/etl_stocks/python/`
+- `api_deps` → `.lambda_layers/api_deps/python/` — **shared** between `api` and `redis_updater` Lambdas
+- `etl_customer_ledger` → `.lambda_layers/etl_customer_ledger/python/`
+
+The step creates the directory with Linux-compatible wheels; Terraform's `archive_file` zips it normally. When adding a new Lambda with a layer, add the corresponding pip install step to both plan and apply jobs in `.github/workflows/terraform.yml`.
+
+### Amplify — one-time import required
+`amplify.tf` manages environment variables on an Amplify app that was **connected to GitHub manually** via the Amplify console. Before the first `terraform apply` on a fresh state, import the existing app into Terraform state:
+```bash
+terraform import aws_amplify_app.dashboard <AMPLIFY_APP_ID>
+```
+Find the App ID in the Amplify console URL (e.g. `d1a2b3c4e5f6g7`). Without this import, `terraform apply` will attempt to create a duplicate Amplify app.
 
 ### Terraform outputs needed downstream
 After `terraform apply`, capture these — they are inputs to every Lambda built next:
@@ -367,6 +384,10 @@ Every run writes a row to `etl_runs`: `run_date`, `started_at`, `completed_at`, 
 - [x] Dashboard UI — `D:\Projects\Iravi\ui\` — Vite + React + TypeScript + Tailwind; sidebar nav (Sales, Purchases, Stocks, Customers, Reports); Current Stocks page with 4 stat tiles + filterable/sortable table; deployed via AWS Amplify Hosting
 - [x] DB migrations folder — `db/migrations/` established; `001_repair_snapshot_stock_duplicates.sql` closes pre-index duplicate `out_z IS NULL` rows (applied 2026-06-03)
 - [x] DB migrations — `002_repair_customer_ledger_duplicates.sql` — defensive duplicate-close script for `customer_ledger` (not yet applied; run if ETL ever inserts without milestoning)
+- [x] Terraform — `lambda_etl_customer_ledger.tf` — Customer Ledger ETL Lambda; S3 trigger on prefix `raw/Ledger` (matches `Ledger All Accounts*.xlsx`); upserts `customer_ledger` with uni-temporal milestoning; emits EventBridge event; has own pip layer (built by CI step "Build etl_customer_ledger layer"); `lambda_etl_sales.tf` bucket notification updated to fan out to all 3 ETL Lambdas
+- [x] Terraform — `amplify.tf` — manages Amplify app environment variables (`VITE_API_BASE_URL`, `VITE_DASHBOARD_USERNAME`, `VITE_DASHBOARD_PASSWORD`); app was connected to GitHub manually — one-time `terraform import` required before first apply; `amplify_default_domain` added to outputs
+- [x] Terraform — `lambda_api.tf` updated — `api_deps` shared layer (psycopg2 + redis-py, linux wheels) used by both api and redis_updater; CORS configured for `dashboard.iraviagrolife.com`
+- [x] CI workflow — "Build etl_customer_ledger layer" and "Build api-deps layer" steps added to both plan and apply jobs
 
 ## Strategy: Stocks-First UI (updated 2026-05-31)
 
@@ -386,6 +407,7 @@ Every run writes a row to `etl_runs`: `run_date`, `started_at`, `completed_at`, 
 - [ ] **Test stocks flow end-to-end** — upload real `Current Stock Balances*.xlsx` to `raw/` in S3, verify `snapshot_stock` rows in RDS, verify Redis keys populate, verify UI tiles + table render correctly
 
 - [ ] **Implement etl_sales handler** — parse `RGF Sales Book*.xlsx` (skip rows 1–5, detect total rows); upsert `dim_customers` + `fact_sales`; emit `ETLSalesSuccess`; move file to `processed/`
+- [ ] **Implement etl_customer_ledger handler** — scaffold `business-core/lambda/etl_customer_ledger/handler.py`; parse `Ledger All Accounts*.xlsx`; skip "Brought Forward" rows; two-step milestoning upsert into `customer_ledger`; emit `ETLCustomerLedgerSuccess`; move file to `processed/` (CI layer build step already exists)
 - [ ] **Implement `_update_sales_cache()`** in redis_updater once etl_sales is verified
 
 - [ ] **Cognito** — add Terraform; JWT authoriser on API Gateway; Amplify Authenticator in UI
