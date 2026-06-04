@@ -152,7 +152,8 @@ IaC/
 │   ├── schema.mmd                  ← Mermaid ER diagram
 │   └── migrations/                 ← Numbered DML repair scripts — apply manually via psql
 │       ├── 001_repair_snapshot_stock_duplicates.sql
-│       └── 002_repair_customer_ledger_duplicates.sql
+│       ├── 002_repair_customer_ledger_duplicates.sql
+│       └── 003_add_voucher_no_to_customer_ledger.sql
 └── terraform/
     ├── bootstrap/                  ← Run ONCE first — creates remote state storage
     │   └── main.tf
