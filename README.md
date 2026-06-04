@@ -93,6 +93,8 @@ Go to Repo → Settings → Secrets and variables → Actions → New repository
 |---|---|---|
 | `AWS_ROLE_ARN` | ARN of `terraform-deployer` role | Used by the pipeline OIDC step to assume the IAM role and authenticate with AWS |
 | `TF_VAR_alert_email` | your email address | Terraform `alert_email` variable — SNS subscription for CloudWatch alarms |
+| `TF_VAR_dashboard_username` | login username | Injected into Amplify as `VITE_DASHBOARD_USERNAME` at build time |
+| `TF_VAR_dashboard_password` | login password | Injected into Amplify as `VITE_DASHBOARD_PASSWORD` at build time |
 
 > **Why `TF_VAR_*` secrets?** `terraform.tfvars` is git-ignored so the pipeline can't read it. Terraform automatically maps any environment variable prefixed with `TF_VAR_` to the matching input variable — these secrets are the pipeline equivalent of `terraform.tfvars`.
 
@@ -165,7 +167,15 @@ IaC/
             ├── vpc_endpoints.tf
             ├── rds.tf
             ├── secrets.tf
-            └── monitoring.tf
+            ├── monitoring.tf
+            ├── bastion.tf
+            ├── elasticache.tf
+            ├── lambda_etl_sales.tf          ← ETL sales Lambda + shared S3 bucket notification (fans out to etl_sales, etl_stocks, etl_customer_ledger)
+            ├── lambda_etl_stocks.tf         ← Stock balance ETL Lambda
+            ├── lambda_etl_customer_ledger.tf← Customer ledger ETL Lambda (trigger: raw/Ledger*.xlsx)
+            ├── lambda_redis_updater.tf      ← Redis updater + EventBridge rule
+            ├── lambda_api.tf               ← API Lambda + API Gateway HTTP API
+            └── amplify.tf                  ← Amplify app env vars (ONE-TIME import required — see Step 4a)
 ```
 
 ---
@@ -227,6 +237,19 @@ alert_email  = "your-email@example.com"   # ← alerts go here
 
 ---
 
+### Step 4a — Import the Amplify app (one-time, if app already exists)
+
+`amplify.tf` manages env vars on the Amplify app that was connected to GitHub manually. Before the first `terraform apply`, import it so Terraform doesn't try to create a duplicate:
+
+```bash
+cd terraform/environments/production
+terraform import aws_amplify_app.dashboard <AMPLIFY_APP_ID>
+```
+
+Find the App ID in the Amplify console URL — it looks like `d1a2b3c4e5f6g7`. Skip this step only if starting from a completely fresh AWS account with no existing Amplify app.
+
+---
+
 ### Step 4 — Deploy infrastructure
 
 ```bash
@@ -244,12 +267,14 @@ terraform apply
 When it completes, note the outputs — you will need them for later pipeline components:
 
 ```
-vpc_id              = "vpc-xxxxxxxxxxxxxxxxx"
-private_subnet_ids  = ["subnet-xxx", "subnet-yyy"]
-sg_lambda_id        = "sg-xxxxxxxxxxxxxxxxx"   ← attach to all Lambda functions
-sg_elasticache_id   = "sg-xxxxxxxxxxxxxxxxx"   ← attach to ElastiCache cluster
-db_secret_arn       = "arn:aws:secretsmanager:..."
-sns_alerts_arn      = "arn:aws:sns:..."
+vpc_id                = "vpc-xxxxxxxxxxxxxxxxx"
+private_subnet_ids    = ["subnet-xxx", "subnet-yyy"]
+sg_lambda_id          = "sg-xxxxxxxxxxxxxxxxx"   ← attach to all Lambda functions
+sg_elasticache_id     = "sg-xxxxxxxxxxxxxxxxx"   ← attach to ElastiCache cluster
+db_secret_arn         = "arn:aws:secretsmanager:..."
+sns_alerts_arn        = "arn:aws:sns:..."
+api_endpoint          = "https://xxxxxxxxxx.execute-api.ap-south-1.amazonaws.com"
+amplify_default_domain = "https://main.xxxxxxxxxx.amplifyapp.com"
 ```
 
 To retrieve outputs at any time:
@@ -442,3 +467,9 @@ Parked decisions — do not act on these without explicit discussion. Revisit as
 
 **SNS email not arriving**
 → Check your spam folder. The sender is `no-reply@sns.amazonaws.com`. Subscription stays in `PendingConfirmation` state until confirmed.
+
+**`terraform apply` tries to create a second Amplify app**
+→ The Amplify app was connected to GitHub manually. Run `terraform import aws_amplify_app.dashboard <APP_ID>` before applying (see Step 4a). Find the App ID in the Amplify console URL.
+
+**Amplify build fails with missing env vars**
+→ Confirm `TF_VAR_dashboard_username` and `TF_VAR_dashboard_password` GitHub Actions secrets are set. After adding them, re-run `terraform apply` — Amplify env vars are only pushed on apply, not automatically.
