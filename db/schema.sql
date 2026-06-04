@@ -310,7 +310,7 @@ CREATE TABLE customer_ledger (
     transaction_date DATE           NOT NULL,
     voucher_no      VARCHAR(50)     NOT NULL,
     account_name    VARCHAR(200)    NOT NULL,
-    category        VARCHAR(20)     NOT NULL,
+    category        VARCHAR(10)     NOT NULL,
     sub_category    VARCHAR(100)    NOT NULL,
     amount          NUMERIC(15, 2)  NOT NULL,
     in_z            TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
