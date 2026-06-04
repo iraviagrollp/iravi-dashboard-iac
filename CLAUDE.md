@@ -196,7 +196,7 @@ Target: Amazon RDS PostgreSQL 16 — database name `iravi_dashboard`
 | `snapshot_stock` | Snapshot (uni-temporal milestoned) | natural key `(brand, technical, packing_size, packing_configuration, branch, special_packing_mention, entry_date)` + `in_z`; `out_z IS NULL` = current |
 | `snapshot_stock_margin` | Snapshot (replace per date) | `(snapshot_date, product_brand_name, packing_id)` |
 | `snapshot_customer_balances` | Snapshot (replace per date) | `(snapshot_date, branch, customer_name)` |
-| `customer_ledger` | Snapshot (uni-temporal milestoned) | natural key `(transaction_date, account_name, category, sub_category)`; `out_z IS NULL` = current |
+| `customer_ledger` | Snapshot (uni-temporal milestoned) | natural key `(transaction_date, voucher_no, account_name, category, sub_category)`; `out_z IS NULL` = current |
 | `etl_runs` | Audit | `run_date` |
 
 ### Migrations convention
