@@ -130,6 +130,32 @@ resource "aws_lambda_permission" "eventbridge_invoke_redis_updater" {
   source_arn    = aws_cloudwatch_event_rule.etl_sales_success.arn
 }
 
+# ── ETLCustomerLedgerSuccess trigger ─────────────────────────────────────────
+
+resource "aws_cloudwatch_event_rule" "etl_customer_ledger_success" {
+  name        = "${var.project}-etl-customer-ledger-success"
+  description = "Fires when etl_customer_ledger Lambda emits ETLCustomerLedgerSuccess"
+
+  event_pattern = jsonencode({
+    source      = ["iravi.etl"]
+    detail-type = ["ETLCustomerLedgerSuccess"]
+  })
+}
+
+resource "aws_cloudwatch_event_target" "redis_updater_customer_ledger" {
+  rule      = aws_cloudwatch_event_rule.etl_customer_ledger_success.name
+  target_id = "RedisUpdaterLambdaCustomerLedger"
+  arn       = aws_lambda_function.redis_updater.arn
+}
+
+resource "aws_lambda_permission" "eventbridge_invoke_redis_updater_customer_ledger" {
+  statement_id  = "AllowEventBridgeInvokeCustomerLedger"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.redis_updater.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.etl_customer_ledger_success.arn
+}
+
 # ── ETLStocksSuccess trigger ──────────────────────────────────────────────────
 
 resource "aws_cloudwatch_event_rule" "etl_stocks_success" {
