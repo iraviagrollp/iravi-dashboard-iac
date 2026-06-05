@@ -166,6 +166,18 @@ resource "aws_apigatewayv2_route" "stocks_current" {
   target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
 }
 
+resource "aws_apigatewayv2_route" "ledger_range" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "GET /ledger/range"
+  target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "ledger" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "GET /ledger"
+  target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
+}
+
 resource "aws_lambda_permission" "apigw_invoke_api" {
   statement_id  = "AllowAPIGatewayInvoke"
   action        = "lambda:InvokeFunction"
