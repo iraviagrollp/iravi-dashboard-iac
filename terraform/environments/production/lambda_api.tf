@@ -178,6 +178,18 @@ resource "aws_apigatewayv2_route" "ledger" {
   target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
 }
 
+resource "aws_apigatewayv2_route" "appendix_b_meta" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "GET /appendix-b/meta"
+  target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "appendix_b_report" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "GET /appendix-b/report"
+  target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
+}
+
 resource "aws_lambda_permission" "apigw_invoke_api" {
   statement_id  = "AllowAPIGatewayInvoke"
   action        = "lambda:InvokeFunction"
