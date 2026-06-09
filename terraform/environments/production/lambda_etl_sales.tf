@@ -172,11 +172,19 @@ resource "aws_s3_bucket_notification" "etl_trigger" {
     filter_suffix       = ".xlsx"
   }
 
+  lambda_function {
+    lambda_function_arn = aws_lambda_function.etl_appendix_b_x11_purchase.arn
+    events              = ["s3:ObjectCreated:*"]
+    filter_prefix       = "raw/AppendixPurchase"
+    filter_suffix       = ".xlsx"
+  }
+
   depends_on = [
     aws_lambda_permission.s3_invoke_etl_sales,
     aws_lambda_permission.s3_invoke_etl_stocks,
     aws_lambda_permission.s3_invoke_etl_customer_ledger,
     aws_lambda_permission.s3_invoke_etl_customer_accounts,
     aws_lambda_permission.s3_invoke_etl_appendix_b_x11,
+    aws_lambda_permission.s3_invoke_etl_appendix_b_x11_purchase,
   ]
 }
