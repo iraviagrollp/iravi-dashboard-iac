@@ -186,6 +186,20 @@ resource "aws_s3_bucket_notification" "etl_trigger" {
     filter_suffix       = ".xlsx"
   }
 
+  lambda_function {
+    lambda_function_arn = aws_lambda_function.etl_appendix_b_x11_sale.arn
+    events              = ["s3:ObjectCreated:*"]
+    filter_prefix       = "raw/AppendixSale"
+    filter_suffix       = ".xlsx"
+  }
+
+  lambda_function {
+    lambda_function_arn = aws_lambda_function.etl_appendix_b_x11_sale_return.arn
+    events              = ["s3:ObjectCreated:*"]
+    filter_prefix       = "raw/AppendixRetSales"
+    filter_suffix       = ".xlsx"
+  }
+
   depends_on = [
     aws_lambda_permission.s3_invoke_etl_sales,
     aws_lambda_permission.s3_invoke_etl_stocks,
@@ -194,5 +208,7 @@ resource "aws_s3_bucket_notification" "etl_trigger" {
     aws_lambda_permission.s3_invoke_etl_appendix_b_x11,
     aws_lambda_permission.s3_invoke_etl_appendix_b_x11_purchase,
     aws_lambda_permission.s3_invoke_etl_appendix_b_x11_purchase_return,
+    aws_lambda_permission.s3_invoke_etl_appendix_b_x11_sale,
+    aws_lambda_permission.s3_invoke_etl_appendix_b_x11_sale_return,
   ]
 }
