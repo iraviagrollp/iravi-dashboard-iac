@@ -153,7 +153,11 @@ IaC/
 │   └── migrations/                 ← Numbered DML repair scripts — apply manually via psql
 │       ├── 001_repair_snapshot_stock_duplicates.sql
 │       ├── 002_repair_customer_ledger_duplicates.sql
-│       └── 003_add_voucher_no_to_customer_ledger.sql
+│       ├── 003_add_voucher_no_to_customer_ledger.sql
+│       ├── 004_create_customer_details.sql
+│       ├── 005_create_appendix_b_x11_stock.sql
+│       ├── 006_create_appendix_b_x11_stock_ledger.sql
+│       └── 007_create_purchases.sql
 └── terraform/
     ├── bootstrap/                  ← Run ONCE first — creates remote state storage
     │   └── main.tf
