@@ -42,7 +42,12 @@ D:\Projects\Iravi\
 │   │   ├── schema.mmd                  ← Mermaid class diagram of schema
 │   │   └── migrations/                 ← numbered DML repair/migration scripts (run manually via psql)
 │   │       ├── 001_repair_snapshot_stock_duplicates.sql
-│   │       └── 002_repair_customer_ledger_duplicates.sql
+│   │       ├── 002_repair_customer_ledger_duplicates.sql
+│   │       ├── 003_add_voucher_no_to_customer_ledger.sql
+│   │       ├── 004_create_customer_details.sql
+│   │       ├── 005_create_appendix_b_x11_stock.sql
+│   │       ├── 006_create_appendix_b_x11_stock_ledger.sql
+│   │       └── 007_create_purchases.sql
 │   ├── design/
 │   │   ├── stakeholder-presentation.html
 │   │   ├── aws-architecture-diagram.html
@@ -188,6 +193,7 @@ Target: Amazon RDS PostgreSQL 16 — database name `iravi_dashboard`
 |---|---|---|
 | `dim_customers` | Dimension | `customer_name` |
 | `dim_packings` | Dimension | `packing_description` |
+| `customer_details` | Dimension | `customer_name` |
 | `fact_sales` | Fact (daily append) | `(voucher_no, transaction_date)` |
 | `fact_sales_returns` | Fact (daily append) | `(voucher_no, transaction_date)` |
 | `fact_purchases` | Fact (daily append) | `(voucher_no, transaction_date)` |
@@ -197,6 +203,9 @@ Target: Amazon RDS PostgreSQL 16 — database name `iravi_dashboard`
 | `snapshot_stock_margin` | Snapshot (replace per date) | `(snapshot_date, product_brand_name, packing_id)` |
 | `snapshot_customer_balances` | Snapshot (replace per date) | `(snapshot_date, branch, customer_name)` |
 | `customer_ledger` | Snapshot (uni-temporal milestoned) | natural key `(transaction_date, voucher_no, account_name, category, sub_category)`; `out_z IS NULL` = current |
+| `appendix_b_x11_stock` | Snapshot (uni-temporal milestoned) | natural key `(barcode, technical_name, vendor)`; `out_z IS NULL` = current |
+| `appendix_b_x11_stock_ledger` | Snapshot (uni-temporal milestoned) | natural key `(purchase_date, iravi_voucher, technical_name, barcode)`; `out_z IS NULL` = current |
+| `purchases` | Snapshot (uni-temporal milestoned) | PK `(purchase_date, voucher_no, branch, party, product)`; `out_z IS NULL` = current; `purchase_return` = 'N' (AppendixPurchaseReport) or 'Y' (AppendixPurReturn) |
 | `etl_runs` | Audit | `run_date` |
 
 ### Migrations convention
@@ -385,6 +394,10 @@ Every run writes a row to `etl_runs`: `run_date`, `started_at`, `completed_at`, 
 - [x] DB migrations folder — `db/migrations/` established; `001_repair_snapshot_stock_duplicates.sql` closes pre-index duplicate `out_z IS NULL` rows (applied 2026-06-03)
 - [x] DB migrations — `002_repair_customer_ledger_duplicates.sql` — defensive duplicate-close script for `customer_ledger` (not yet applied; run if ETL ever inserts without milestoning)
 - [x] DB migrations — `003_add_voucher_no_to_customer_ledger.sql` — adds `voucher_no VARCHAR(50) NOT NULL` column and rebuilds `uix_customer_ledger_active` to include it; safe to run (table exists, no data inserted yet)
+- [x] DB migrations — `004_create_customer_details.sql` — creates `customer_details` table (upsert on `customer_name`); also added to `schema.sql`
+- [x] DB migrations — `005_create_appendix_b_x11_stock.sql` — creates `appendix_b_x11_stock` (Barcodes Masters export); uni-temporal milestoned, natural key `(barcode, technical_name, vendor)`
+- [x] DB migrations — `006_create_appendix_b_x11_stock_ledger.sql` — creates `appendix_b_x11_stock_ledger` (AppendixPurchaseReport export); uni-temporal milestoned, natural key `(purchase_date, iravi_voucher, technical_name, barcode)`
+- [x] DB migrations — `007_create_purchases.sql` — creates `purchases` (line-item purchase ledger, AppendixPurchaseReport + AppendixPurReturn); uni-temporal milestoned, PK `(purchase_date, voucher_no, branch, party, product)`
 - [x] Terraform — `lambda_etl_customer_ledger.tf` — Customer Ledger ETL Lambda; S3 trigger on prefix `raw/Ledger` (matches `Ledger All Accounts*.xlsx`); upserts `customer_ledger` with uni-temporal milestoning; emits EventBridge event; has own pip layer (built by CI step "Build etl_customer_ledger layer"); `lambda_etl_sales.tf` bucket notification updated to fan out to all 3 ETL Lambdas
 - [x] Terraform — `amplify.tf` — manages Amplify app environment variables (`VITE_API_BASE_URL`, `VITE_DASHBOARD_USERNAME`, `VITE_DASHBOARD_PASSWORD`); app was connected to GitHub manually — one-time `terraform import` required before first apply; `amplify_default_domain` added to outputs
 - [x] Terraform — `lambda_api.tf` updated — `api_deps` shared layer (psycopg2 + redis-py, linux wheels) used by both api and redis_updater; CORS configured for `dashboard.iraviagrolife.com`
