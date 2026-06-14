@@ -202,6 +202,18 @@ resource "aws_apigatewayv2_route" "purchases_summary" {
   target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
 }
 
+resource "aws_apigatewayv2_route" "purchases_monthly" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "GET /purchases/monthly"
+  target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "purchases_list" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "GET /purchases/list"
+  target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
+}
+
 resource "aws_lambda_permission" "apigw_invoke_api" {
   statement_id  = "AllowAPIGatewayInvoke"
   action        = "lambda:InvokeFunction"
