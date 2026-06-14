@@ -190,6 +190,18 @@ resource "aws_apigatewayv2_route" "appendix_b_report" {
   target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
 }
 
+resource "aws_apigatewayv2_route" "purchases_meta" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "GET /purchases/meta"
+  target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "purchases_summary" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "GET /purchases/summary"
+  target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
+}
+
 resource "aws_lambda_permission" "apigw_invoke_api" {
   statement_id  = "AllowAPIGatewayInvoke"
   action        = "lambda:InvokeFunction"
