@@ -232,6 +232,12 @@ resource "aws_apigatewayv2_route" "customers_names" {
   target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
 }
 
+resource "aws_apigatewayv2_route" "customers_details" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "GET /customers/details"
+  target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
+}
+
 resource "aws_lambda_permission" "apigw_invoke_api" {
   statement_id  = "AllowAPIGatewayInvoke"
   action        = "lambda:InvokeFunction"
