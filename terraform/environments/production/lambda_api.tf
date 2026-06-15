@@ -214,6 +214,24 @@ resource "aws_apigatewayv2_route" "purchases_list" {
   target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
 }
 
+resource "aws_apigatewayv2_route" "sales_meta" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "GET /sales/meta"
+  target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "sales_list" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "GET /sales/list"
+  target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "customers_names" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "GET /customers/names"
+  target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
+}
+
 resource "aws_lambda_permission" "apigw_invoke_api" {
   statement_id  = "AllowAPIGatewayInvoke"
   action        = "lambda:InvokeFunction"
