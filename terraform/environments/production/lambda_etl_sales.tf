@@ -200,6 +200,13 @@ resource "aws_s3_bucket_notification" "etl_trigger" {
     filter_suffix       = ".xlsx"
   }
 
+  lambda_function {
+    lambda_function_arn = aws_lambda_function.whatsapp_notifier.arn
+    events              = ["s3:ObjectCreated:*"]
+    filter_prefix       = "notifications/pending/"
+    filter_suffix       = ".html"
+  }
+
   depends_on = [
     aws_lambda_permission.s3_invoke_etl_sales,
     aws_lambda_permission.s3_invoke_etl_stocks,
@@ -210,5 +217,6 @@ resource "aws_s3_bucket_notification" "etl_trigger" {
     aws_lambda_permission.s3_invoke_etl_appendix_b_x11_purchase_return,
     aws_lambda_permission.s3_invoke_etl_appendix_b_x11_sale,
     aws_lambda_permission.s3_invoke_etl_appendix_b_x11_sale_return,
+    aws_lambda_permission.s3_invoke_whatsapp_notifier,
   ]
 }
