@@ -191,6 +191,12 @@ resource "aws_apigatewayv2_route" "ledger_outstanding" {
   target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
 }
 
+resource "aws_apigatewayv2_route" "ledger_statement" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "GET /ledger/statement"
+  target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
+}
+
 resource "aws_apigatewayv2_route" "appendix_b_meta" {
   api_id    = aws_apigatewayv2_api.main.id
   route_key = "GET /appendix-b/meta"
