@@ -204,7 +204,7 @@ resource "aws_s3_bucket_notification" "etl_trigger" {
     lambda_function_arn = aws_lambda_function.whatsapp_notifier.arn
     events              = ["s3:ObjectCreated:*"]
     filter_prefix       = "notifications/pending/"
-    filter_suffix       = ".html"
+    filter_suffix       = ".pdf"
   }
 
   depends_on = [
