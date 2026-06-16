@@ -48,7 +48,8 @@ D:\Projects\Iravi\
 │   │       ├── 005_create_appendix_b_x11_stock.sql
 │   │       ├── 006_create_appendix_b_x11_stock_ledger.sql
 │   │       ├── 007_create_purchases.sql
-│   │       └── 008_create_sales.sql
+│   │       ├── 008_create_sales.sql
+│   │       └── 009_create_rbac.sql
 │   ├── design/
 │   │   ├── stakeholder-presentation.html
 │   │   ├── aws-architecture-diagram.html
@@ -67,7 +68,7 @@ D:\Projects\Iravi\
 │               ├── security_groups.tf  ← sg-lambda, sg-rds, sg-elasticache, sg-bastion
 │               ├── vpc_endpoints.tf    ← S3 gateway + Secrets Manager interface
 │               ├── rds.tf              ← RDS PostgreSQL 16
-│               ├── secrets.tf          ← Secrets Manager (DB credentials)
+│               ├── secrets.tf          ← Secrets Manager (DB credentials + JWT signing key iravi/dashboard/jwt)
 │               ├── monitoring.tf       ← SNS + 5 CloudWatch alarms
 │               ├── schema_runner.tf    ← removed (apply schema via SSM + psql)
 │               ├── bastion.tf          ← Bastion EC2 — SSM Session Manager, no SSH
@@ -75,8 +76,8 @@ D:\Projects\Iravi\
 │               ├── lambda_etl_stocks.tf ← Stock balance ETL Lambda (S3 trigger via shared notification in lambda_etl_sales.tf)
 │               ├── lambda_etl_customer_ledger.tf ← Customer Ledger ETL Lambda (S3 trigger via shared notification; upserts customer_ledger with uni-temporal milestoning)
 │               ├── lambda_redis_updater.tf ← Redis Updater + EventBridge trigger
-│               ├── lambda_api.tf       ← API Lambda + API Gateway HTTP API (CORS: dashboard.iraviagrolife.com)
-│               └── amplify.tf          ← Amplify app env vars (VITE_API_BASE_URL, VITE_DASHBOARD_USERNAME, VITE_DASHBOARD_PASSWORD); ONE-TIME import required before first apply
+│               ├── lambda_api.tf       ← API Lambda + API Gateway HTTP API; RBAC /auth/* + /admin/* routes; CORS GET/POST/PUT/DELETE
+│               └── amplify.tf          ← Amplify app env vars (VITE_API_BASE_URL only — dashboard creds removed; now BOOTSTRAP_ADMIN_* on the API Lambda); ONE-TIME import required before first apply
 ├── business-core\                      ← separate repo (processing logic)
 │   ├── CLAUDE.md
 │   └── lambda\
@@ -209,6 +210,10 @@ Target: Amazon RDS PostgreSQL 16 — database name `iravi_dashboard`
 | `purchases` | Snapshot (uni-temporal milestoned) | PK `(purchase_date, voucher_no, branch, party, product)`; `out_z IS NULL` = current; `purchase_return` = 'N' (AppendixPurchaseReport) or 'Y' (AppendixPurReturn) |
 | `sales` | Snapshot (uni-temporal milestoned) | PK `(purchase_date, voucher_no, branch, party, product)`; `out_z IS NULL` = current; `sales_return` = 'N' (AppendixSale) or 'Y' (AppendixRetSales) |
 | `etl_runs` | Audit | `run_date` |
+| `app_roles` | RBAC | `role_name` |
+| `app_screens` | RBAC (seeded) | `screen_key` |
+| `app_role_screens` | RBAC map | `(role_id, screen_key)` |
+| `app_users` | RBAC | `username` |
 
 ### Migrations convention
 One-off DML repairs and data fixes live in `db/migrations/` as numbered SQL files (`001_...`, `002_...`). They are not run automatically — apply manually via psql through the SSM tunnel. Always commit the migration file alongside the code change that made it necessary so the git history explains why it was run.
@@ -405,6 +410,7 @@ Every run writes a row to `etl_runs`: `run_date`, `started_at`, `completed_at`, 
 - [x] Terraform — `amplify.tf` — manages Amplify app environment variables (`VITE_API_BASE_URL`, `VITE_DASHBOARD_USERNAME`, `VITE_DASHBOARD_PASSWORD`); app was connected to GitHub manually — one-time `terraform import` required before first apply; `amplify_default_domain` added to outputs
 - [x] Terraform — `lambda_api.tf` updated — `api_deps` shared layer (psycopg2 + redis-py, linux wheels) used by both api and redis_updater; CORS configured for `dashboard.iraviagrolife.com`
 - [x] CI workflow — "Build etl_customer_ledger layer" and "Build api-deps layer" steps added to both plan and apply jobs
+- [x] RBAC phase 1 — DB migration `009_create_rbac.sql` (app_roles/app_screens/app_role_screens/app_users); JWT signing key secret `iravi/dashboard/jwt` (`secrets.tf`); API Lambda env `JWT_SECRET_ARN` + `BOOTSTRAP_ADMIN_*`, IAM for the jwt secret, `/auth/*` + `/admin/*` routes, CORS PUT/DELETE (`lambda_api.tf`); dashboard creds removed from Amplify bundle (`amplify.tf`). Login + `/admin/*` enforced server-side; data endpoints are UI-only gated (full enforcement = backlog)
 
 ## Strategy: Stocks-First UI (updated 2026-05-31)
 

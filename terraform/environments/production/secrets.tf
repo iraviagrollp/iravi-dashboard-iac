@@ -22,3 +22,26 @@ resource "aws_secretsmanager_secret_version" "db" {
     password = random_password.db.result
   })
 }
+
+# ── JWT signing key ───────────────────────────────────────────────────────────
+# HS256 signing key for dashboard login tokens. Read by the API Lambda
+# (business-core/lambda/api/auth.py) at cold start. Stored as a raw string.
+# Secret key path: iravi/dashboard/jwt
+
+resource "random_password" "jwt" {
+  length  = 64
+  special = false
+}
+
+resource "aws_secretsmanager_secret" "jwt" {
+  name                    = "iravi/dashboard/jwt"
+  description             = "HS256 signing key for dashboard auth JWTs"
+  recovery_window_in_days = 7
+
+  tags = { Name = "${var.project}-jwt-secret" }
+}
+
+resource "aws_secretsmanager_secret_version" "jwt" {
+  secret_id     = aws_secretsmanager_secret.jwt.id
+  secret_string = random_password.jwt.result
+}

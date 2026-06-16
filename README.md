@@ -157,7 +157,9 @@ IaC/
 │       ├── 004_create_customer_details.sql
 │       ├── 005_create_appendix_b_x11_stock.sql
 │       ├── 006_create_appendix_b_x11_stock_ledger.sql
-│       └── 007_create_purchases.sql
+│       ├── 007_create_purchases.sql
+│       ├── 008_create_sales.sql
+│       └── 009_create_rbac.sql
 └── terraform/
     ├── bootstrap/                  ← Run ONCE first — creates remote state storage
     │   └── main.tf
@@ -175,11 +177,18 @@ IaC/
             ├── monitoring.tf
             ├── bastion.tf
             ├── elasticache.tf
-            ├── lambda_etl_sales.tf          ← ETL sales Lambda + shared S3 bucket notification (fans out to etl_sales, etl_stocks, etl_customer_ledger)
+            ├── lambda_etl_sales.tf          ← ETL sales Lambda + SHARED S3 bucket notification (fans out to all 10 Lambdas by prefix)
             ├── lambda_etl_stocks.tf         ← Stock balance ETL Lambda
             ├── lambda_etl_customer_ledger.tf← Customer ledger ETL Lambda (trigger: raw/Ledger*.xlsx)
-            ├── lambda_redis_updater.tf      ← Redis updater + EventBridge rule
-            ├── lambda_api.tf               ← API Lambda + API Gateway HTTP API
+            ├── lambda_etl_customer_accounts.tf ← Customer accounts ETL Lambda (trigger: raw/Customer*.xlsx)
+            ├── lambda_etl_appendix_b_x11.tf ← Barcodes Masters ETL Lambda (trigger: raw/Barcodes*.xlsx)
+            ├── lambda_etl_appendix_b_x11_purchase.tf        ← AppendixPurchaseReport ETL Lambda
+            ├── lambda_etl_appendix_b_x11_purchase_return.tf ← AppendixPurReturn ETL Lambda
+            ├── lambda_etl_appendix_b_x11_sale.tf            ← AppendixSale ETL Lambda
+            ├── lambda_etl_appendix_b_x11_sale_return.tf     ← AppendixRetSales ETL Lambda
+            ├── lambda_whatsapp_notifier.tf  ← WhatsApp notifier Lambda (trigger: notifications/pending/*)
+            ├── lambda_redis_updater.tf      ← Redis updater + 3 EventBridge rules (stocks/ledger/sales success)
+            ├── lambda_api.tf               ← API Lambda + API Gateway HTTP API + api_deps layer; RBAC /auth/* + /admin/* routes
             └── amplify.tf                  ← Amplify app env vars (ONE-TIME import required — see Step 4a)
 ```
 
@@ -261,13 +270,13 @@ Find the App ID in the Amplify console URL — it looks like `d1a2b3c4e5f6g7`. S
 # Still inside terraform/environments/production/
 
 terraform init
-terraform plan    # review — expect ~25 resources to be created
+terraform plan    # review the planned resources
 terraform apply
 ```
 
 `terraform apply` takes **8–12 minutes**, most of which is waiting for RDS to become available.
 
-> **Expected resource count:** ~27 resources. The extra 2 vs. earlier estimates are the dedicated VPC endpoint security group and its ingress rule.
+> **Expected resource count:** the base platform (VPC, RDS, Redis, S3, Secrets, bastion, VPC endpoints, monitoring) is ~30 resources. Each Lambda adds ~5 (function, IAM role, role policy, log group, invoke permission); the 10 Lambdas, 2 shared layers, 3 EventBridge rules, and Amplify bring the full plan to **~90+ resources**. Run `terraform plan` for the exact current count rather than relying on a fixed number.
 
 When it completes, note the outputs — you will need them for later pipeline components:
 

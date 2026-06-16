@@ -13,10 +13,12 @@ resource "aws_amplify_app" "dashboard" {
   name       = "${var.project}-ui"
   repository = var.amplify_github_repo
 
+  # Login is now server-side (API Lambda validates DB users + issues a JWT), so the
+  # dashboard credentials are NOT injected into the public bundle anymore. They are
+  # passed to the API Lambda instead as BOOTSTRAP_ADMIN_* (see lambda_api.tf) and
+  # only create the first admin user on first login.
   environment_variables = {
-    VITE_API_BASE_URL       = aws_apigatewayv2_stage.default.invoke_url
-    VITE_DASHBOARD_USERNAME = var.dashboard_username
-    VITE_DASHBOARD_PASSWORD = var.dashboard_password
+    VITE_API_BASE_URL = aws_apigatewayv2_stage.default.invoke_url
   }
 
   lifecycle {
