@@ -80,6 +80,12 @@ resource "aws_iam_role_policy" "api" {
         Action   = ["secretsmanager:GetSecretValue"]
         Resource = aws_secretsmanager_secret.db.arn
       },
+      {
+        Sid      = "S3Notify"
+        Effect   = "Allow"
+        Action   = ["s3:PutObject"]
+        Resource = "${aws_s3_bucket.data.arn}/notifications/*"
+      },
     ]
   })
 }
@@ -111,6 +117,7 @@ resource "aws_lambda_function" "api" {
     variables = {
       DB_SECRET_ARN = aws_secretsmanager_secret.db.arn
       REDIS_HOST    = aws_elasticache_cluster.main.cache_nodes[0].address
+      DATA_BUCKET   = aws_s3_bucket.data.id
     }
   }
 
@@ -130,7 +137,7 @@ resource "aws_apigatewayv2_api" "main" {
 
   cors_configuration {
     allow_origins = ["https://dashboard.iraviagrolife.com"]
-    allow_methods = ["GET", "OPTIONS"]
+    allow_methods = ["GET", "POST", "OPTIONS"]
     allow_headers = ["Authorization", "Content-Type"]
   }
 }
@@ -241,6 +248,12 @@ resource "aws_apigatewayv2_route" "customers_names" {
 resource "aws_apigatewayv2_route" "customers_details" {
   api_id    = aws_apigatewayv2_api.main.id
   route_key = "GET /customers/details"
+  target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "notify" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "POST /notify"
   target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
 }
 
