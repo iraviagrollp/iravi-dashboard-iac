@@ -1,8 +1,9 @@
 # ── API Lambda + API Gateway ───────────────────────────────────────────────────
-# Serves dashboard API requests via HTTP API Gateway (v2).
-# Cache-aside: Redis → RDS fallback → populate Redis.
-# Cognito JWT authoriser is wired in once cognito.tf is provisioned.
-# Phase 1: GET /sales only.
+# Serves dashboard data (cache-aside: Redis → RDS fallback → populate Redis) plus
+# RBAC auth: POST /auth/login issues a JWT; /auth/me + /admin/* are enforced in the
+# Lambda (valid JWT; /admin/* requires an admin user). JWT signing key + bootstrap
+# admin creds come from Secrets Manager / Lambda env (see secrets.tf, env block below).
+# Cognito JWT authoriser remains a future phase.
 # Source: D:\Projects\Iravi\business-core\lambda\api\
 
 locals {
@@ -78,7 +79,7 @@ resource "aws_iam_role_policy" "api" {
         Sid      = "SecretsManager"
         Effect   = "Allow"
         Action   = ["secretsmanager:GetSecretValue"]
-        Resource = aws_secretsmanager_secret.db.arn
+        Resource = [aws_secretsmanager_secret.db.arn, aws_secretsmanager_secret.jwt.arn]
       },
       {
         Sid      = "S3Notify"
@@ -115,9 +116,12 @@ resource "aws_lambda_function" "api" {
 
   environment {
     variables = {
-      DB_SECRET_ARN = aws_secretsmanager_secret.db.arn
-      REDIS_HOST    = aws_elasticache_cluster.main.cache_nodes[0].address
-      DATA_BUCKET   = aws_s3_bucket.data.id
+      DB_SECRET_ARN            = aws_secretsmanager_secret.db.arn
+      JWT_SECRET_ARN           = aws_secretsmanager_secret.jwt.arn
+      REDIS_HOST               = aws_elasticache_cluster.main.cache_nodes[0].address
+      DATA_BUCKET              = aws_s3_bucket.data.id
+      BOOTSTRAP_ADMIN_USERNAME = var.dashboard_username
+      BOOTSTRAP_ADMIN_PASSWORD = var.dashboard_password
     }
   }
 
@@ -137,7 +141,7 @@ resource "aws_apigatewayv2_api" "main" {
 
   cors_configuration {
     allow_origins = ["https://dashboard.iraviagrolife.com"]
-    allow_methods = ["GET", "POST", "OPTIONS"]
+    allow_methods = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
     allow_headers = ["Authorization", "Content-Type"]
   }
 }
@@ -260,6 +264,33 @@ resource "aws_apigatewayv2_route" "customers_details" {
 resource "aws_apigatewayv2_route" "notify" {
   api_id    = aws_apigatewayv2_api.main.id
   route_key = "POST /notify"
+  target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
+}
+
+# ── RBAC: auth + admin routes ─────────────────────────────────────────────────
+# Login is public; /auth/me and all /admin/* routes are enforced in the Lambda
+# (valid JWT; /admin/* additionally requires an admin user).
+
+locals {
+  api_rbac_routes = [
+    "POST /auth/login",
+    "GET /auth/me",
+    "GET /admin/screens",
+    "GET /admin/roles",
+    "POST /admin/roles",
+    "PUT /admin/roles/{role_id}",
+    "DELETE /admin/roles/{role_id}",
+    "GET /admin/users",
+    "POST /admin/users",
+    "PUT /admin/users/{user_id}",
+    "DELETE /admin/users/{user_id}",
+  ]
+}
+
+resource "aws_apigatewayv2_route" "rbac" {
+  for_each  = toset(local.api_rbac_routes)
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = each.value
   target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
 }
 
