@@ -59,9 +59,9 @@ resource "aws_iam_role_policy" "whatsapp_notifier" {
         Resource = "arn:aws:logs:${var.aws_region}:*:log-group:/aws/lambda/${local.whatsapp_notifier_name}:*"
       },
       {
-        Sid    = "S3Notifications"
-        Effect = "Allow"
-        Action = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
+        Sid      = "S3Notifications"
+        Effect   = "Allow"
+        Action   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
         Resource = "${aws_s3_bucket.data.arn}/notifications/*"
       },
     ]
