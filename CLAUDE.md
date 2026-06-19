@@ -76,7 +76,7 @@ D:\Projects\Iravi\
 │               ├── lambda_etl_stocks.tf ← Stock balance ETL Lambda (S3 trigger via shared notification in lambda_etl_sales.tf)
 │               ├── lambda_etl_customer_ledger.tf ← Customer Ledger ETL Lambda (S3 trigger via shared notification; upserts customer_ledger with uni-temporal milestoning)
 │               ├── lambda_redis_updater.tf ← Redis Updater + EventBridge trigger
-│               ├── lambda_api.tf       ← API Lambda + API Gateway HTTP API; RBAC /auth/* + /admin/* routes; CORS GET/POST/PUT/DELETE
+│               ├── lambda_api.tf       ← API Lambda + API Gateway HTTP API; RBAC /auth/* + /admin/* routes (incl. POST /admin/cache/flush); CORS GET/POST/PUT/DELETE
 │               └── amplify.tf          ← Amplify app env vars (VITE_API_BASE_URL only — dashboard creds removed; now BOOTSTRAP_ADMIN_* on the API Lambda); ONE-TIME import required before first apply
 ├── business-core\                      ← separate repo (processing logic)
 │   ├── CLAUDE.md
@@ -411,8 +411,7 @@ Every run writes a row to `etl_runs`: `run_date`, `started_at`, `completed_at`, 
 - [x] Terraform — `lambda_api.tf` updated — `api_deps` shared layer (psycopg2 + redis-py, linux wheels) used by both api and redis_updater; CORS configured for `dashboard.iraviagrolife.com`
 - [x] CI workflow — "Build etl_customer_ledger layer" and "Build api-deps layer" steps added to both plan and apply jobs
 - [x] RBAC phase 1 — DB migration `009_create_rbac.sql` (app_roles/app_screens/app_role_screens/app_users); JWT signing key secret `iravi/dashboard/jwt` (`secrets.tf`); API Lambda env `JWT_SECRET_ARN` + `BOOTSTRAP_ADMIN_*`, IAM for the jwt secret, `/auth/*` + `/admin/*` routes, CORS PUT/DELETE (`lambda_api.tf`); dashboard creds removed from Amplify bundle (`amplify.tf`). Login + `/admin/*` enforced server-side; data endpoints are UI-only gated (full enforcement = backlog)
-
-## Strategy: Stocks-First UI (updated 2026-05-31)
+- [x] Admin cache flush — `POST /admin/cache/flush` route added to `api_rbac_routes` (`lambda_api.tf`); API Lambda handler deletes all `iravi:*` Redis keys (namespace-scoped, not FLUSHDB) so the cache rehydrates from RDS on next request; UI exposes it as an admin-only button left of the dark-mode toggle in the navbar (`iravi-ui` Layout). Requires IaC apply for the route + Lambda redeploy to take effect
 
 **Stocks pipeline is complete end-to-end.** Current Stocks UI is built and ready to deploy. Redis cache is populated nightly by redis_updater after `ETLStocksSuccess` event.
 

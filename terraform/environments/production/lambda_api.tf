@@ -284,6 +284,7 @@ locals {
     "POST /admin/users",
     "PUT /admin/users/{user_id}",
     "DELETE /admin/users/{user_id}",
+    "POST /admin/cache/flush",
   ]
 }
 
