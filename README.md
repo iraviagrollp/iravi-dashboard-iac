@@ -188,7 +188,7 @@ IaC/
             ├── lambda_etl_appendix_b_x11_sale_return.tf     ← AppendixRetSales ETL Lambda
             ├── lambda_whatsapp_notifier.tf  ← WhatsApp notifier Lambda (trigger: notifications/pending/*)
             ├── lambda_redis_updater.tf      ← Redis updater + 3 EventBridge rules (stocks/ledger/sales success)
-            ├── lambda_api.tf               ← API Lambda + API Gateway HTTP API + api_deps layer; RBAC /auth/* + /admin/* routes
+            ├── lambda_api.tf               ← API Lambda + API Gateway HTTP API + api_deps layer; RBAC /auth/* + /admin/* routes (incl. POST /admin/cache/flush)
             └── amplify.tf                  ← Amplify app env vars (ONE-TIME import required — see Step 4a)
 ```
 
