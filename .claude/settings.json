@@ -1,0 +1,36 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(./**)",
+      "Bash(python -c ' *)"
+    ],
+    "ask": [
+      "Bash(rm *)",
+      "PowerShell(Remove-Item *)",
+      "PowerShell(rm *)",
+      "PowerShell(del *)"
+    ],
+    "additionalDirectories": [
+      "../iravi-ui",
+      "../business-core"
+    ],
+    "deny": [
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)"
+    ]
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"require((process.env.CLAUDE_PROJECT_DIR||process.cwd())+'/../.claude/hooks/doc-reminder.js')\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
