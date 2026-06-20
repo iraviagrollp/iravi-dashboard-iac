@@ -49,7 +49,8 @@ D:\Projects\Iravi\
 │   │       ├── 006_create_appendix_b_x11_stock_ledger.sql
 │   │       ├── 007_create_purchases.sql
 │   │       ├── 008_create_sales.sql
-│   │       └── 009_create_rbac.sql
+│   │       ├── 009_create_rbac.sql
+│   │       └── 010_add_customer_balances_fy_screen.sql
 │   ├── design/
 │   │   ├── stakeholder-presentation.html
 │   │   ├── aws-architecture-diagram.html
@@ -76,7 +77,7 @@ D:\Projects\Iravi\
 │               ├── lambda_etl_stocks.tf ← Stock balance ETL Lambda (S3 trigger via shared notification in lambda_etl_sales.tf)
 │               ├── lambda_etl_customer_ledger.tf ← Customer Ledger ETL Lambda (S3 trigger via shared notification; upserts customer_ledger with uni-temporal milestoning)
 │               ├── lambda_redis_updater.tf ← Redis Updater + EventBridge trigger
-│               ├── lambda_api.tf       ← API Lambda + API Gateway HTTP API; RBAC /auth/* + /admin/* routes (incl. POST /admin/cache/flush); CORS GET/POST/PUT/DELETE
+│               ├── lambda_api.tf       ← API Lambda + API Gateway HTTP API; RBAC /auth/* + /admin/* routes (incl. POST /admin/cache/flush); CORS GET/POST/PUT/DELETE; GET /reports/customer-balances-fy route added (migration 010)
 │               └── amplify.tf          ← Amplify app env vars (VITE_API_BASE_URL only — dashboard creds removed; now BOOTSTRAP_ADMIN_* on the API Lambda); ONE-TIME import required before first apply
 ├── business-core\                      ← separate repo (processing logic)
 │   ├── CLAUDE.md
@@ -412,6 +413,8 @@ Every run writes a row to `etl_runs`: `run_date`, `started_at`, `completed_at`, 
 - [x] CI workflow — "Build etl_customer_ledger layer" and "Build api-deps layer" steps added to both plan and apply jobs
 - [x] RBAC phase 1 — DB migration `009_create_rbac.sql` (app_roles/app_screens/app_role_screens/app_users); JWT signing key secret `iravi/dashboard/jwt` (`secrets.tf`); API Lambda env `JWT_SECRET_ARN` + `BOOTSTRAP_ADMIN_*`, IAM for the jwt secret, `/auth/*` + `/admin/*` routes, CORS PUT/DELETE (`lambda_api.tf`); dashboard creds removed from Amplify bundle (`amplify.tf`). Login + `/admin/*` enforced server-side; data endpoints are UI-only gated (full enforcement = backlog)
 - [x] Admin cache flush — `POST /admin/cache/flush` route added to `api_rbac_routes` (`lambda_api.tf`); API Lambda handler deletes all `iravi:*` Redis keys (namespace-scoped, not FLUSHDB) so the cache rehydrates from RDS on next request; UI exposes it as an admin-only button left of the dark-mode toggle in the navbar (`iravi-ui` Layout). Requires IaC apply for the route + Lambda redeploy to take effect
+- [x] Terraform — `lambda_api.tf` updated — `GET /reports/customer-balances-fy` route added (`aws_apigatewayv2_route.reports_customer_balances_fy`); same per-path explicit route pattern as all other data routes; CORS already covers GET via the existing `cors_configuration` block — no CORS change needed
+- [x] DB migrations — `010_add_customer_balances_fy_screen.sql` — idempotently inserts `app_screens` seed row `('reports.customer_balances_fy', 'Customer Balances (FY)', 90)` with `ON CONFLICT (screen_key) DO NOTHING`; RBAC key for the new Customer Balances (FY) report screen; NOT YET APPLIED — apply manually via psql over the SSM tunnel post-merge
 
 **Stocks pipeline is complete end-to-end.** Current Stocks UI is built and ready to deploy. Redis cache is populated nightly by redis_updater after `ETLStocksSuccess` event.
 

@@ -159,7 +159,8 @@ IaC/
 │       ├── 006_create_appendix_b_x11_stock_ledger.sql
 │       ├── 007_create_purchases.sql
 │       ├── 008_create_sales.sql
-│       └── 009_create_rbac.sql
+│       ├── 009_create_rbac.sql
+│       └── 010_add_customer_balances_fy_screen.sql
 └── terraform/
     ├── bootstrap/                  ← Run ONCE first — creates remote state storage
     │   └── main.tf
@@ -188,7 +189,7 @@ IaC/
             ├── lambda_etl_appendix_b_x11_sale_return.tf     ← AppendixRetSales ETL Lambda
             ├── lambda_whatsapp_notifier.tf  ← WhatsApp notifier Lambda (trigger: notifications/pending/*)
             ├── lambda_redis_updater.tf      ← Redis updater + 3 EventBridge rules (stocks/ledger/sales success)
-            ├── lambda_api.tf               ← API Lambda + API Gateway HTTP API + api_deps layer; RBAC /auth/* + /admin/* routes (incl. POST /admin/cache/flush)
+            ├── lambda_api.tf               ← API Lambda + API Gateway HTTP API + api_deps layer; RBAC /auth/* + /admin/* routes (incl. POST /admin/cache/flush); GET /reports/customer-balances-fy route
             └── amplify.tf                  ← Amplify app env vars (ONE-TIME import required — see Step 4a)
 ```
 
