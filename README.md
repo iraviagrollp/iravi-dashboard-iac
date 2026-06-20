@@ -160,7 +160,8 @@ IaC/
 │       ├── 007_create_purchases.sql
 │       ├── 008_create_sales.sql
 │       ├── 009_create_rbac.sql
-│       └── 010_add_customer_balances_fy_screen.sql
+│       ├── 010_add_customer_balances_fy_screen.sql
+│       └── 011_add_customer_code_to_customer_details.sql
 └── terraform/
     ├── bootstrap/                  ← Run ONCE first — creates remote state storage
     │   └── main.tf
