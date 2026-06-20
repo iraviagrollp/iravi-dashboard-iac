@@ -40,6 +40,7 @@ CREATE INDEX idx_customers_city ON dim_customers (city);
 CREATE TABLE customer_details (
     id              SERIAL PRIMARY KEY,
     customer_name   VARCHAR(200)    NOT NULL,
+    customer_code   VARCHAR(20),
     district        VARCHAR(100),
     city            VARCHAR(100),
     state           CHAR(2),
@@ -49,6 +50,8 @@ CREATE TABLE customer_details (
 
     CONSTRAINT uq_customer_details_name UNIQUE (customer_name)
 );
+
+CREATE INDEX idx_customer_details_code ON customer_details (customer_code);
 
 
 -- ============================================================
