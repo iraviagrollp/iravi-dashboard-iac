@@ -410,13 +410,14 @@ CREATE TABLE app_users (
 CREATE INDEX idx_app_users_role ON app_users (role_id);
 
 INSERT INTO app_screens (screen_key, label, sort_order) VALUES
-    ('overview',                 'Overview',                 10),
-    ('sales',                    'Sales',                    20),
-    ('purchases',                'Purchases',                30),
-    ('stocks',                   'Stocks',                   40),
-    ('customers',                'Customer Ledger',          50),
-    ('balances',                 'Customer Balances',        60),
-    ('reports.appendix_b',       'Appendix B',               70),
-    ('reports.ledger_statement', 'Customer Ledger (report)', 80);
+    ('overview',                      'Overview',                 10),
+    ('sales',                         'Sales',                    20),
+    ('purchases',                     'Purchases',                30),
+    ('stocks',                        'Stocks',                   40),
+    ('customers',                     'Customer Ledger',          50),
+    ('balances',                      'Customer Balances',        60),
+    ('reports.appendix_b',            'Appendix B',               70),
+    ('reports.ledger_statement',      'Customer Ledger (report)', 80),
+    ('reports.customer_balances_fy',  'Customer Balances (FY)',   90);
 
 INSERT INTO app_roles (role_name, is_admin) VALUES ('Administrator', TRUE);
