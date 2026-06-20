@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(./**)",
+      "Bash(python -c ' *)"
+    ],
+    "ask": [
+      "Bash(rm *)",
+      "PowerShell(Remove-Item *)",
+      "PowerShell(rm *)",
+      "PowerShell(del *)"
+    ],
+    "additionalDirectories": [
+      "../iravi-ui",
+      "../business-core"
+    ]
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "node ../.claude/hooks/doc-reminder.js", "timeout": 30 }
+        ]
+      }
+    ]
+  }
+}
