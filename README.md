@@ -161,7 +161,8 @@ IaC/
 │       ├── 008_create_sales.sql
 │       ├── 009_create_rbac.sql
 │       ├── 010_add_customer_balances_fy_screen.sql
-│       └── 011_add_customer_code_to_customer_details.sql
+│       ├── 011_add_customer_code_to_customer_details.sql
+│       └── 012_widen_customer_ledger_amount.sql
 └── terraform/
     ├── bootstrap/                  ← Run ONCE first — creates remote state storage
     │   └── main.tf
@@ -409,6 +410,13 @@ psql "host=localhost port=5432 dbname=iravi_dashboard user=dashboard_admin passw
 ```
 
 Each migration file includes a comment explaining what it fixes and when it was applied. Run migrations in order (001, 002, …). They are idempotent — safe to re-run.
+
+**Migration 012 note — `customer_ledger.amount` precision (NUMERIC(15,2) → NUMERIC(15,4)):**
+The "Ledger All Accounts" export carries GST component lines at 3 decimal places (e.g. 6498.675).
+Storing them at 2dp rounded the value and produced a 1-paise drift when components were summed per voucher.
+After applying migration 012 you MUST:
+1. Re-ingest the ledger file(s) via the ETL Lambda — the ALTER alone cannot recover already-truncated rows.
+2. Flush the Redis cache (`POST /admin/cache/flush`) so the API serves fresh data from RDS.
 
 ---
 

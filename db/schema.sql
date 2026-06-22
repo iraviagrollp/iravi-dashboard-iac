@@ -332,7 +332,7 @@ CREATE TABLE customer_ledger (
     account_name    VARCHAR(200)    NOT NULL,
     category        VARCHAR(10)     NOT NULL,
     sub_category    VARCHAR(100)    NOT NULL,
-    amount          NUMERIC(15, 2)  NOT NULL,
+    amount          NUMERIC(15, 4)  NOT NULL,
     in_z            TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     out_z           TIMESTAMPTZ                 -- NULL = current record
 );
