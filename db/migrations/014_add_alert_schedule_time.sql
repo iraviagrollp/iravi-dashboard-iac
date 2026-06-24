@@ -1,0 +1,23 @@
+-- Migration 014: add per-alert send time to the alerts table
+-- Feature: Alerts — each alert now carries its own wall-clock send time (IST).
+-- The alerts_evaluator Lambda runs every 15 minutes and self-selects which alerts
+-- are due (matching frequency/schedule_day AND whose schedule_time has been reached
+-- for the current 15-minute window) — that logic lives in business-core.
+--
+-- Default '11:00:00' preserves the previous behaviour for all existing alerts.
+--
+-- APPLY MANUALLY via psql over the SSM tunnel:
+--   aws ssm start-session \
+--     --target $(terraform output -raw bastion_instance_id) \
+--     --document-name AWS-StartPortForwardingSessionToRemoteHost \
+--     --parameters '{"host":["<RDS_HOST>"],"portNumber":["5432"],"localPortNumber":["5432"]}'
+--   # In a second terminal:
+--   psql "host=127.0.0.1 port=5432 dbname=iravi_dashboard user=dashboard_admin" \
+--     -f 014_add_alert_schedule_time.sql
+--
+-- This migration is idempotent (uses IF NOT EXISTS). Safe to re-run.
+-- DO NOT run automatically — always apply manually after merge to main.
+
+-- Adds a per-alert send time (IST wall-clock). Default 11:00 keeps existing alerts unchanged.
+-- Applied manually via psql over the SSM tunnel.
+ALTER TABLE alerts ADD COLUMN IF NOT EXISTS schedule_time TIME NOT NULL DEFAULT '11:00:00';

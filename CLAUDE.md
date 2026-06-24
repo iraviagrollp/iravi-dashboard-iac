@@ -217,7 +217,7 @@ Target: Amazon RDS PostgreSQL 16 — database name `iravi_dashboard`
 | `app_screens` | RBAC (seeded) | `screen_key` |
 | `app_role_screens` | RBAC map | `(role_id, screen_key)` |
 | `app_users` | RBAC | `username` |
-| `alerts` | Alerts config | `id` (SERIAL PK); `frequency` in (daily/weekly/monthly); `match_type` all/any |
+| `alerts` | Alerts config | `id` (SERIAL PK); `frequency` in (daily/weekly/monthly); `match_type` all/any; `schedule_time TIME DEFAULT '11:00:00'` (per-alert IST send time, added migration 014) |
 | `alert_conditions` | Alerts filter rows | `alert_id` FK → alerts; `op` in (gt/gte/lt/lte/eq/between) |
 | `alert_recipients` | Alert email addresses | `alert_id` FK → alerts; `channel` = 'email' |
 | `alert_runs` | Alert audit log | `alert_id` FK → alerts; records each evaluator invocation |
@@ -447,7 +447,8 @@ Every run writes a row to `etl_runs`: `run_date`, `started_at`, `completed_at`, 
 - [x] DB migrations — `012_widen_customer_ledger_amount.sql` — widens `customer_ledger.amount` from `NUMERIC(15,2)` to `NUMERIC(15,4)`; the "Ledger All Accounts" export contains GST component lines at 3 decimal places (e.g. 6498.675) — storing at 2dp rounded them and produced a 1-paise drift when components were summed per voucher; schema.sql updated to match; NOT YET APPLIED — apply manually via psql over the SSM tunnel, then RE-INGEST the ledger file(s) (existing rows were already truncated and cannot be recovered by the ALTER alone), then flush the Redis cache
 - [x] DB migrations — `013_create_alerts.sql` — creates `alerts`, `alert_conditions`, `alert_recipients`, `alert_runs` tables with check constraints; all relational (no JSONB); schema.sql updated to match; NOT YET APPLIED — apply manually via psql over the SSM tunnel post-merge
 - [x] Terraform — `ses.tf` — SES domain identity for `var.alerts_domain` (default `iraviagrolife.com`) + DKIM configuration; outputs `ses_domain_verification_token`, `ses_dkim_tokens` (3 CNAMEs), `ses_identity_arn`; `aws_ses_configuration_set` named `${project}-alerts`; two manual steps required: (a) add DNS records, (b) request SES production access
-- [x] Terraform — `lambda_alerts_evaluator.tf` — Alerts Evaluator Lambda (`python3.12`, handler `handler.lambda_handler`, 256 MB, 300 s timeout); reuses `api_deps` layer (psycopg2); VPC private subnets + sg_lambda; env: `DB_SECRET_ARN`, `ALERTS_SENDER_EMAIL`; IAM: GetSecretValue on DB secret + ses:SendEmail/SendRawEmail scoped to SES identity ARN; EventBridge cron `cron(30 5 * * ? *)` (05:30 UTC = 11:00 IST)
+- [x] Terraform — `lambda_alerts_evaluator.tf` — Alerts Evaluator Lambda (`python3.12`, handler `handler.lambda_handler`, 256 MB, 300 s timeout); reuses `api_deps` layer (psycopg2); VPC private subnets + sg_lambda; env: `DB_SECRET_ARN`, `ALERTS_SENDER_EMAIL`; IAM: GetSecretValue on DB secret + ses:SendEmail/SendRawEmail scoped to SES identity ARN; EventBridge schedule changed from daily `cron(30 5 * * ? *)` (11:00 IST) to `rate(15 minutes)` — send time is now per-alert (`alerts.schedule_time`); business-core Lambda self-selects which alerts are due each invocation
+- [x] DB migrations — `014_add_alert_schedule_time.sql` — adds `schedule_time TIME NOT NULL DEFAULT '11:00:00'` to `alerts` table; default preserves legacy 11:00 IST behaviour for existing rows; schema.sql updated to match; NOT YET APPLIED — apply manually via psql over the SSM tunnel post-merge
 - [x] Terraform — `lambda_api.tf` alerts routes — `GET /alerts`, `POST /alerts`, `PUT /alerts/{id}`, `DELETE /alerts/{id}`, `GET /alerts/fields`, `POST /alerts/{id}/test` added to `api_rbac_routes` local; enforced in Lambda handler (valid JWT + is_admin); CORS already covers all methods via existing cors_configuration block
 
 **Stocks pipeline is complete end-to-end.** Current Stocks UI is built and ready to deploy. Redis cache is populated nightly by redis_updater after `ETLStocksSuccess` event.
@@ -474,11 +475,12 @@ Every run writes a row to `etl_runs`: `run_date`, `started_at`, `completed_at`, 
 - [ ] **One-time historical migration** — 1 month of transaction files through ETL Lambda; stock history starts from go-live
 
 ### Alerts feature — post-merge manual steps
-- [ ] Push `business-core/lambda/alerts_evaluator/` BEFORE merging this IaC PR (Terraform reads source at validate time)
+- [ ] Push `business-core/lambda/alerts_evaluator/` BEFORE merging this IaC PR (Terraform reads source at validate time); update evaluator to self-select alerts by `schedule_time` on each 15-minute invocation
 - [ ] After `terraform apply`: run `terraform output ses_dkim_tokens` and add the 3 CNAMEs + TXT record to DNS
 - [ ] Request SES production access via AWS Console (sandbox → production); test with verified addresses in sandbox first
-- [ ] Apply migration `013_create_alerts.sql` manually via psql over the SSM tunnel
-- [ ] iravi-ui: build the Alerts admin screen (`GET/POST/PUT/DELETE /alerts`, `GET /alerts/fields`, `POST /alerts/{id}/test`)
+- [ ] Apply migration `013_create_alerts.sql` manually via psql over the SSM tunnel (if not already applied)
+- [ ] Apply migration `014_add_alert_schedule_time.sql` manually via psql over the SSM tunnel (adds `schedule_time` column to `alerts`)
+- [ ] iravi-ui: build the Alerts admin screen (`GET/POST/PUT/DELETE /alerts`, `GET /alerts/fields`, `POST /alerts/{id}/test`); expose `schedule_time` as a time-picker field on the alert form
 
 ---
 

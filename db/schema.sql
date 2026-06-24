@@ -427,17 +427,19 @@ INSERT INTO app_roles (role_name, is_admin) VALUES ('Administrator', TRUE);
 
 
 -- ============================================================
--- ALERTS — admin-configurable balance alerts (migration 013)
+-- ALERTS — admin-configurable balance alerts (migrations 013, 014)
 -- Admin creates named alert rules with conditions, recipient
--- email addresses, and a frequency schedule. The
--- alerts_evaluator Lambda runs on cron (05:30 UTC / 11:00 IST)
--- and emails matching results via SES.
+-- email addresses, a frequency schedule, and a per-alert send time
+-- (schedule_time, IST wall-clock). The alerts_evaluator Lambda runs
+-- every 15 minutes (rate(15 minutes)) and self-selects which alerts
+-- are due for the current window; emails matching results via SES.
 -- ============================================================
 
 -- One row per admin-configured alert rule.
 -- frequency: daily | weekly | monthly
 -- schedule_day: weekly → 0-6 (0=Mon); monthly → 1-28; daily → NULL
 -- match_type: all (AND) | any (OR) across alert_conditions
+-- schedule_time: IST wall-clock time at which the alert fires (default 11:00 = legacy behaviour)
 CREATE TABLE alerts (
     id            SERIAL PRIMARY KEY,
     name          VARCHAR(120)  NOT NULL,
@@ -446,6 +448,7 @@ CREATE TABLE alerts (
     schedule_day  SMALLINT,
     match_type    VARCHAR(3)    NOT NULL DEFAULT 'all',
     is_active     BOOLEAN       NOT NULL DEFAULT TRUE,
+    schedule_time TIME          NOT NULL DEFAULT '11:00:00',
     created_by    VARCHAR(64),
     created_at    TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
     updated_at    TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
