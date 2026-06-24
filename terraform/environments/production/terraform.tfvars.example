@@ -19,3 +19,10 @@ dashboard_password  = "iravi@2024"
 # 2. Find your public IP: curl https://ifconfig.me
 bastion_key_name     = "iravi-dashboard-bastion"
 bastion_allowed_cidr = "YOUR_IP/32"  # e.g. "203.0.113.45/32"
+
+# Alerts / SES — sender identity for balance-alert emails
+# After apply, run: terraform output ses_dkim_tokens
+# Add the 3 output CNAME records to your DNS provider to verify the domain.
+# Also request SES production access (sandbox → production) in the AWS console.
+alerts_sender_email = "noreply@iraviagrolife.com"
+alerts_domain       = "iraviagrolife.com"

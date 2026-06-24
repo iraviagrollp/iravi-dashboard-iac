@@ -291,6 +291,15 @@ locals {
     "PUT /admin/users/{user_id}",
     "DELETE /admin/users/{user_id}",
     "POST /admin/cache/flush",
+    # ── Alerts — admin-only CRUD + helpers ───────────────────────────────────
+    # Enforced in the Lambda handler: valid JWT + is_admin required.
+    # CORS already covers GET/POST/PUT/DELETE via the cors_configuration block.
+    "GET /alerts",
+    "POST /alerts",
+    "PUT /alerts/{id}",
+    "DELETE /alerts/{id}",
+    "GET /alerts/fields",
+    "POST /alerts/{id}/test",
   ]
 }
 

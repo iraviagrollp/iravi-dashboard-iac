@@ -424,3 +424,78 @@ INSERT INTO app_screens (screen_key, label, sort_order) VALUES
     ('reports.customer_balances_fy',  'Customer Balances (FY)',   90);
 
 INSERT INTO app_roles (role_name, is_admin) VALUES ('Administrator', TRUE);
+
+
+-- ============================================================
+-- ALERTS — admin-configurable balance alerts (migration 013)
+-- Admin creates named alert rules with conditions, recipient
+-- email addresses, and a frequency schedule. The
+-- alerts_evaluator Lambda runs on cron (05:30 UTC / 11:00 IST)
+-- and emails matching results via SES.
+-- ============================================================
+
+-- One row per admin-configured alert rule.
+-- frequency: daily | weekly | monthly
+-- schedule_day: weekly → 0-6 (0=Mon); monthly → 1-28; daily → NULL
+-- match_type: all (AND) | any (OR) across alert_conditions
+CREATE TABLE alerts (
+    id            SERIAL PRIMARY KEY,
+    name          VARCHAR(120)  NOT NULL,
+    category      VARCHAR(40)   NOT NULL DEFAULT 'balances',
+    frequency     VARCHAR(10)   NOT NULL,
+    schedule_day  SMALLINT,
+    match_type    VARCHAR(3)    NOT NULL DEFAULT 'all',
+    is_active     BOOLEAN       NOT NULL DEFAULT TRUE,
+    created_by    VARCHAR(64),
+    created_at    TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+    updated_at    TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT chk_alerts_frequency    CHECK (frequency  IN ('daily', 'weekly', 'monthly')),
+    CONSTRAINT chk_alerts_match_type   CHECK (match_type IN ('all', 'any')),
+    CONSTRAINT chk_alerts_schedule_day CHECK (
+        (frequency = 'daily'   AND schedule_day IS NULL)
+     OR (frequency = 'weekly'  AND schedule_day BETWEEN 0 AND 6)
+     OR (frequency = 'monthly' AND schedule_day BETWEEN 1 AND 28)
+    )
+);
+
+-- One or more filter conditions per alert.
+-- op: gt | gte | lt | lte | eq | between
+-- value2 is only populated for op = 'between'.
+CREATE TABLE alert_conditions (
+    id        SERIAL PRIMARY KEY,
+    alert_id  INT           NOT NULL REFERENCES alerts(id) ON DELETE CASCADE,
+    field     VARCHAR(40)   NOT NULL,
+    op        VARCHAR(10)   NOT NULL,
+    value     NUMERIC(15,2) NOT NULL,
+    value2    NUMERIC(15,2),
+
+    CONSTRAINT chk_alert_conditions_op CHECK (op IN ('gt', 'gte', 'lt', 'lte', 'eq', 'between'))
+);
+
+CREATE INDEX idx_alert_conditions_alert ON alert_conditions(alert_id);
+
+-- Email addresses (or future channels) that receive the alert email.
+CREATE TABLE alert_recipients (
+    id        SERIAL PRIMARY KEY,
+    alert_id  INT           NOT NULL REFERENCES alerts(id) ON DELETE CASCADE,
+    channel   VARCHAR(10)   NOT NULL DEFAULT 'email',
+    address   VARCHAR(200)  NOT NULL,
+
+    CONSTRAINT chk_alert_recipients_channel CHECK (channel IN ('email'))
+);
+
+CREATE INDEX idx_alert_recipients_alert ON alert_recipients(alert_id);
+
+-- Audit log of every evaluator invocation per alert.
+-- status: success | failed | no_match
+CREATE TABLE alert_runs (
+    id        SERIAL PRIMARY KEY,
+    alert_id  INT           REFERENCES alerts(id) ON DELETE CASCADE,
+    run_at    TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+    matched   INT,
+    status    VARCHAR(20),
+    error     TEXT
+);
+
+CREATE INDEX idx_alert_runs_alert ON alert_runs(alert_id);

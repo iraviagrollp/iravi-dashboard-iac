@@ -81,3 +81,15 @@ variable "dashboard_password" {
   sensitive   = true
 }
 
+variable "alerts_sender_email" {
+  description = "From address for balance-alert emails sent via SES (must belong to alerts_domain)"
+  type        = string
+  default     = "noreply@iraviagrolife.com"
+}
+
+variable "alerts_domain" {
+  description = "Domain registered with SES for sending alert emails (e.g. iraviagrolife.com)"
+  type        = string
+  default     = "iraviagrolife.com"
+}
+
