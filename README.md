@@ -16,6 +16,9 @@ Region: `ap-south-1` (Mumbai).
 | Credentials | AWS Secrets Manager secret with DB host/port/name/user/password |
 | Monitoring | SNS alert topic + 5 CloudWatch alarms (CPU, storage, connections, memory, write latency) |
 | Bastion Host | `t3.micro` EC2 in public subnet — SSM Session Manager port forwarding to RDS (no SSH, no key pair) |
+| SES | Domain identity + DKIM for `iraviagrolife.com`; configuration set `iravi-dashboard-alerts`; used by alerts_evaluator Lambda; DNS records output by `terraform output ses_dkim_tokens` |
+| Alerts Evaluator Lambda | `iravi-dashboard-alerts-evaluator` — Python 3.12, 256 MB, 300 s, reuses `api_deps` layer; EventBridge daily cron `cron(30 5 * * ? *)` = 11:00 IST |
+| Alerts API routes | 6 admin-only routes in `api_rbac_routes`: `GET/POST /alerts`, `PUT/DELETE /alerts/{id}`, `GET /alerts/fields`, `POST /alerts/{id}/test` |
 | CI/CD | GitHub Actions — fmt + validate on PR (Stage 1); plan + apply coming after AWS account setup |
 | Diagram | Visual architecture diagram — `design/aws-architecture-diagram.html` (git-ignored, local only) |
 | Setup Guide | AWS account setup guide — `design/aws-account-setup-guide.html` (git-ignored, local only) |
@@ -162,7 +165,8 @@ IaC/
 │       ├── 009_create_rbac.sql
 │       ├── 010_add_customer_balances_fy_screen.sql
 │       ├── 011_add_customer_code_to_customer_details.sql
-│       └── 012_widen_customer_ledger_amount.sql
+│       ├── 012_widen_customer_ledger_amount.sql
+│       └── 013_create_alerts.sql                ← alerts/alert_conditions/alert_recipients/alert_runs
 └── terraform/
     ├── bootstrap/                  ← Run ONCE first — creates remote state storage
     │   └── main.tf
@@ -191,7 +195,9 @@ IaC/
             ├── lambda_etl_appendix_b_x11_sale_return.tf     ← AppendixRetSales ETL Lambda
             ├── lambda_whatsapp_notifier.tf  ← WhatsApp notifier Lambda (trigger: notifications/pending/*)
             ├── lambda_redis_updater.tf      ← Redis updater + 3 EventBridge rules (stocks/ledger/sales success)
-            ├── lambda_api.tf               ← API Lambda + API Gateway HTTP API + api_deps layer; RBAC /auth/* + /admin/* routes (incl. POST /admin/cache/flush); GET /reports/customer-balances-fy route
+            ├── lambda_api.tf               ← API Lambda + API Gateway HTTP API + api_deps layer; RBAC /auth/* + /admin/* routes; alerts CRUD routes (admin-only); GET /reports/customer-balances-fy route
+            ├── ses.tf                      ← SES domain identity + DKIM for alerts emails; outputs DNS records
+            ├── lambda_alerts_evaluator.tf  ← Alerts Evaluator Lambda + EventBridge daily cron (11:00 IST)
             └── amplify.tf                  ← Amplify app env vars (ONE-TIME import required — see Step 4a)
 ```
 
@@ -242,12 +248,16 @@ cd terraform/environments/production
 cp terraform.tfvars.example terraform.tfvars
 ```
 
-Edit `terraform.tfvars` — the only required field is `alert_email`:
+Edit `terraform.tfvars` — the only required field is `alert_email`. The alerts/SES variables have defaults that match the production domain:
 
 ```hcl
 aws_region   = "ap-south-1"
 environment  = "production"
-alert_email  = "your-email@example.com"   # ← alerts go here
+alert_email  = "your-email@example.com"   # ← CloudWatch alarm emails
+
+# Alerts feature — SES sender identity (defaults are already correct for prod)
+alerts_sender_email = "noreply@iraviagrolife.com"
+alerts_domain       = "iraviagrolife.com"
 ```
 
 > `terraform.tfvars` is git-ignored. Never commit it.
@@ -418,6 +428,50 @@ After applying migration 012 you MUST:
 1. Re-ingest the ledger file(s) via the ETL Lambda — the ALTER alone cannot recover already-truncated rows.
 2. Flush the Redis cache (`POST /admin/cache/flush`) so the API serves fresh data from RDS.
 
+**Migration 013 — alerts tables:**
+Creates `alerts`, `alert_conditions`, `alert_recipients`, `alert_runs` for the balance-alerts feature.
+Apply after `terraform apply` has provisioned the `ses.tf` + `lambda_alerts_evaluator.tf` resources and
+after DNS verification for SES is complete. Migration is idempotent (`IF NOT EXISTS`).
+
+---
+
+## SES Setup (alerts email)
+
+Two manual steps are required after the first `terraform apply` that includes `ses.tf`:
+
+### Step 1 — Add DNS records for domain verification
+
+```bash
+cd terraform/environments/production
+terraform output ses_domain_verification_token
+terraform output ses_dkim_tokens
+```
+
+In your DNS provider (e.g. Route 53, GoDaddy, Cloudflare):
+
+| Record type | Name | Value |
+|---|---|---|
+| TXT | `_amazonses.iraviagrolife.com` | value from `ses_domain_verification_token` |
+| CNAME | `<token1>._domainkey.iraviagrolife.com` | `<token1>.dkim.amazonses.com` |
+| CNAME | `<token2>._domainkey.iraviagrolife.com` | `<token2>.dkim.amazonses.com` |
+| CNAME | `<token3>._domainkey.iraviagrolife.com` | `<token3>.dkim.amazonses.com` |
+
+SES auto-verifies within hours (up to 72 h). Check status in AWS Console → SES → Verified identities.
+
+### Step 2 — Request SES production access
+
+New AWS accounts start in the SES sandbox: outbound email is limited to verified recipient addresses only.
+To lift this restriction:
+
+1. AWS Console → SES → Account dashboard → **Request production access**
+2. Fill in the support case:
+   - Use case: Transactional
+   - Daily sending volume: e.g. < 1,000/day
+   - Confirm CAN-SPAM / DPDP compliance
+3. Approval takes 1–2 business days.
+
+**While in sandbox:** add each alert recipient email as a verified identity in SES (Console → SES → Verified identities → Create identity → Email address) before testing alert delivery.
+
 ---
 
 ## Useful Commands
@@ -497,3 +551,9 @@ Parked decisions — do not act on these without explicit discussion. Revisit as
 
 **Amplify build fails with missing env vars**
 → Confirm `TF_VAR_dashboard_username` and `TF_VAR_dashboard_password` GitHub Actions secrets are set. After adding them, re-run `terraform apply` — Amplify env vars are only pushed on apply, not automatically.
+
+**Alerts evaluator Lambda errors with `MessageRejected` from SES**
+→ The SES domain identity is not yet verified, or the account is still in sandbox mode. Check SES Console → Verified identities for the domain status. If status is `Pending`, the DNS records (Step 1 of SES setup above) have not propagated yet. If the domain is verified but the recipient is not, you are in sandbox — add the recipient as a verified identity or request production access.
+
+**`terraform validate` fails with missing alerts_evaluator source**
+→ The Lambda source directory `../business-core/lambda/alerts_evaluator/` does not exist yet. Push the business-core `alerts_evaluator` Lambda source before opening a PR against this IaC repo (Terraform reads the source path at validate time, not just at apply time).

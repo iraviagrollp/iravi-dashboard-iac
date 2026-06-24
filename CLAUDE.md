@@ -77,7 +77,9 @@ D:\Projects\Iravi\
 │               ├── lambda_etl_stocks.tf ← Stock balance ETL Lambda (S3 trigger via shared notification in lambda_etl_sales.tf)
 │               ├── lambda_etl_customer_ledger.tf ← Customer Ledger ETL Lambda (S3 trigger via shared notification; upserts customer_ledger with uni-temporal milestoning)
 │               ├── lambda_redis_updater.tf ← Redis Updater + EventBridge trigger
-│               ├── lambda_api.tf       ← API Lambda + API Gateway HTTP API; RBAC /auth/* + /admin/* routes (incl. POST /admin/cache/flush); CORS GET/POST/PUT/DELETE; GET /reports/customer-balances-fy route added (migration 010)
+│               ├── lambda_api.tf       ← API Lambda + API Gateway HTTP API; RBAC /auth/* + /admin/* routes (incl. POST /admin/cache/flush); CORS GET/POST/PUT/DELETE; GET /reports/customer-balances-fy route added (migration 010); alerts CRUD routes added to api_rbac_routes (admin-only)
+│               ├── ses.tf              ← SES domain identity + DKIM for alerts emails (alerts_domain var); outputs verification token + DKIM CNAMEs
+│               ├── lambda_alerts_evaluator.tf ← Alerts Evaluator Lambda + EventBridge daily cron (05:30 UTC = 11:00 IST); reuses api_deps layer; env: DB_SECRET_ARN, ALERTS_SENDER_EMAIL; IAM: GetSecretValue + ses:SendEmail/SendRawEmail
 │               └── amplify.tf          ← Amplify app env vars (VITE_API_BASE_URL only — dashboard creds removed; now BOOTSTRAP_ADMIN_* on the API Lambda); ONE-TIME import required before first apply
 ├── business-core\                      ← separate repo (processing logic)
 │   ├── CLAUDE.md
@@ -215,6 +217,10 @@ Target: Amazon RDS PostgreSQL 16 — database name `iravi_dashboard`
 | `app_screens` | RBAC (seeded) | `screen_key` |
 | `app_role_screens` | RBAC map | `(role_id, screen_key)` |
 | `app_users` | RBAC | `username` |
+| `alerts` | Alerts config | `id` (SERIAL PK); `frequency` in (daily/weekly/monthly); `match_type` all/any |
+| `alert_conditions` | Alerts filter rows | `alert_id` FK → alerts; `op` in (gt/gte/lt/lte/eq/between) |
+| `alert_recipients` | Alert email addresses | `alert_id` FK → alerts; `channel` = 'email' |
+| `alert_runs` | Alert audit log | `alert_id` FK → alerts; records each evaluator invocation |
 
 ### Migrations convention
 One-off DML repairs and data fixes live in `db/migrations/` as numbered SQL files (`001_...`, `002_...`). They are not run automatically — apply manually via psql through the SSM tunnel. Always commit the migration file alongside the code change that made it necessary so the git history explains why it was run.
@@ -261,6 +267,28 @@ One-off DML repairs and data fixes live in `db/migrations/` as numbered SQL file
 | `TF_VAR_alert_email` | Terraform `alert_email` variable — SNS CloudWatch alarm email |
 | `TF_VAR_dashboard_username` | Terraform `dashboard_username` variable — injected into Amplify as `VITE_DASHBOARD_USERNAME` |
 | `TF_VAR_dashboard_password` | Terraform `dashboard_password` variable — injected into Amplify as `VITE_DASHBOARD_PASSWORD` |
+
+### Terraform variables added for Alerts / SES
+
+| Variable | Default | Description |
+|---|---|---|
+| `alerts_sender_email` | `noreply@iraviagrolife.com` | From address for SES-sent alert emails |
+| `alerts_domain` | `iraviagrolife.com` | Domain registered with SES; DNS records output by `terraform output ses_dkim_tokens` must be added to your DNS provider |
+
+### SES setup — two unavoidable manual steps
+
+**Step 1 — DNS verification.** After the first `terraform apply` containing `ses.tf`, run:
+```bash
+terraform output ses_domain_verification_token   # add as TXT record: _amazonses.<domain>
+terraform output ses_dkim_tokens                 # add 3 CNAMEs: <token>._domainkey.<domain> → <token>.dkim.amazonses.com
+```
+Add these records in your DNS provider. SES verifies automatically (usually within a few hours, up to 72 h).
+
+**Step 2 — SES production access.** New AWS accounts start in the SES sandbox: outbound email is limited to verified addresses only. To send to arbitrary recipients (customers/admins), request production access:
+- AWS Console → SES → Account dashboard → Request production access
+- Fill in the support case (transactional use, daily volume estimate, CAN-SPAM compliance acknowledgement)
+- Approval typically takes 1–2 business days
+- Until approved, add each intended recipient address as a verified identity in SES to test in sandbox mode
 
 `terraform.tfvars` is git-ignored. The pipeline reads these secrets as `TF_VAR_*` env vars instead — Terraform maps them automatically to the matching input variables.
 
@@ -417,6 +445,10 @@ Every run writes a row to `etl_runs`: `run_date`, `started_at`, `completed_at`, 
 - [x] DB migrations — `010_add_customer_balances_fy_screen.sql` — idempotently inserts `app_screens` seed row `('reports.customer_balances_fy', 'Customer Balances (FY)', 90)` with `ON CONFLICT (screen_key) DO NOTHING`; RBAC key for the new Customer Balances (FY) report screen; NOT YET APPLIED — apply manually via psql over the SSM tunnel post-merge
 - [x] DB migrations — `011_add_customer_code_to_customer_details.sql` — adds `customer_code VARCHAR(20)` (nullable) to `customer_details` plus `idx_customer_details_code` index; sourced from the "General" sheet of the Customer Accounts Export File by `etl_customer_accounts`; NOT YET APPLIED — MUST be applied manually via psql over the SSM tunnel BEFORE the updated `etl_customer_accounts` Lambda runs
 - [x] DB migrations — `012_widen_customer_ledger_amount.sql` — widens `customer_ledger.amount` from `NUMERIC(15,2)` to `NUMERIC(15,4)`; the "Ledger All Accounts" export contains GST component lines at 3 decimal places (e.g. 6498.675) — storing at 2dp rounded them and produced a 1-paise drift when components were summed per voucher; schema.sql updated to match; NOT YET APPLIED — apply manually via psql over the SSM tunnel, then RE-INGEST the ledger file(s) (existing rows were already truncated and cannot be recovered by the ALTER alone), then flush the Redis cache
+- [x] DB migrations — `013_create_alerts.sql` — creates `alerts`, `alert_conditions`, `alert_recipients`, `alert_runs` tables with check constraints; all relational (no JSONB); schema.sql updated to match; NOT YET APPLIED — apply manually via psql over the SSM tunnel post-merge
+- [x] Terraform — `ses.tf` — SES domain identity for `var.alerts_domain` (default `iraviagrolife.com`) + DKIM configuration; outputs `ses_domain_verification_token`, `ses_dkim_tokens` (3 CNAMEs), `ses_identity_arn`; `aws_ses_configuration_set` named `${project}-alerts`; two manual steps required: (a) add DNS records, (b) request SES production access
+- [x] Terraform — `lambda_alerts_evaluator.tf` — Alerts Evaluator Lambda (`python3.12`, handler `handler.lambda_handler`, 256 MB, 300 s timeout); reuses `api_deps` layer (psycopg2); VPC private subnets + sg_lambda; env: `DB_SECRET_ARN`, `ALERTS_SENDER_EMAIL`; IAM: GetSecretValue on DB secret + ses:SendEmail/SendRawEmail scoped to SES identity ARN; EventBridge cron `cron(30 5 * * ? *)` (05:30 UTC = 11:00 IST)
+- [x] Terraform — `lambda_api.tf` alerts routes — `GET /alerts`, `POST /alerts`, `PUT /alerts/{id}`, `DELETE /alerts/{id}`, `GET /alerts/fields`, `POST /alerts/{id}/test` added to `api_rbac_routes` local; enforced in Lambda handler (valid JWT + is_admin); CORS already covers all methods via existing cors_configuration block
 
 **Stocks pipeline is complete end-to-end.** Current Stocks UI is built and ready to deploy. Redis cache is populated nightly by redis_updater after `ETLStocksSuccess` event.
 
@@ -440,6 +472,13 @@ Every run writes a row to `etl_runs`: `run_date`, `started_at`, `completed_at`, 
 - [ ] **Cognito** — add Terraform; JWT authoriser on API Gateway; Amplify Authenticator in UI
 
 - [ ] **One-time historical migration** — 1 month of transaction files through ETL Lambda; stock history starts from go-live
+
+### Alerts feature — post-merge manual steps
+- [ ] Push `business-core/lambda/alerts_evaluator/` BEFORE merging this IaC PR (Terraform reads source at validate time)
+- [ ] After `terraform apply`: run `terraform output ses_dkim_tokens` and add the 3 CNAMEs + TXT record to DNS
+- [ ] Request SES production access via AWS Console (sandbox → production); test with verified addresses in sandbox first
+- [ ] Apply migration `013_create_alerts.sql` manually via psql over the SSM tunnel
+- [ ] iravi-ui: build the Alerts admin screen (`GET/POST/PUT/DELETE /alerts`, `GET /alerts/fields`, `POST /alerts/{id}/test`)
 
 ---
 
