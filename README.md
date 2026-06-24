@@ -17,7 +17,7 @@ Region: `ap-south-1` (Mumbai).
 | Monitoring | SNS alert topic + 5 CloudWatch alarms (CPU, storage, connections, memory, write latency) |
 | Bastion Host | `t3.micro` EC2 in public subnet — SSM Session Manager port forwarding to RDS (no SSH, no key pair) |
 | SES | Domain identity + DKIM for `iraviagrolife.com`; configuration set `iravi-dashboard-alerts`; used by alerts_evaluator Lambda; DNS records output by `terraform output ses_dkim_tokens` |
-| Alerts Evaluator Lambda | `iravi-dashboard-alerts-evaluator` — Python 3.12, 256 MB, 300 s, reuses `api_deps` layer; EventBridge daily cron `cron(30 5 * * ? *)` = 11:00 IST |
+| Alerts Evaluator Lambda | `iravi-dashboard-alerts-evaluator` — Python 3.12, 256 MB, 300 s, reuses `api_deps` layer; EventBridge `rate(15 minutes)` — send time is per-alert (`alerts.schedule_time`, IST); Lambda self-selects which alerts are due each invocation (was daily `cron(30 5 * * ? *)`) |
 | Alerts API routes | 6 admin-only routes in `api_rbac_routes`: `GET/POST /alerts`, `PUT/DELETE /alerts/{id}`, `GET /alerts/fields`, `POST /alerts/{id}/test` |
 | CI/CD | GitHub Actions — fmt + validate on PR (Stage 1); plan + apply coming after AWS account setup |
 | Diagram | Visual architecture diagram — `design/aws-architecture-diagram.html` (git-ignored, local only) |
@@ -166,7 +166,8 @@ IaC/
 │       ├── 010_add_customer_balances_fy_screen.sql
 │       ├── 011_add_customer_code_to_customer_details.sql
 │       ├── 012_widen_customer_ledger_amount.sql
-│       └── 013_create_alerts.sql                ← alerts/alert_conditions/alert_recipients/alert_runs
+│       ├── 013_create_alerts.sql                ← alerts/alert_conditions/alert_recipients/alert_runs
+│       └── 014_add_alert_schedule_time.sql      ← adds schedule_time TIME DEFAULT '11:00:00' to alerts
 └── terraform/
     ├── bootstrap/                  ← Run ONCE first — creates remote state storage
     │   └── main.tf
@@ -432,6 +433,13 @@ After applying migration 012 you MUST:
 Creates `alerts`, `alert_conditions`, `alert_recipients`, `alert_runs` for the balance-alerts feature.
 Apply after `terraform apply` has provisioned the `ses.tf` + `lambda_alerts_evaluator.tf` resources and
 after DNS verification for SES is complete. Migration is idempotent (`IF NOT EXISTS`).
+
+**Migration 014 — `alerts.schedule_time` (per-alert send time):**
+Adds `schedule_time TIME NOT NULL DEFAULT '11:00:00'` to the `alerts` table. The default preserves
+the previous 11:00 IST behaviour for existing rows. Apply after migration 013. The
+`alerts_evaluator` Lambda now runs every 15 minutes (`rate(15 minutes)`) and self-selects which
+alerts are due for the current window based on `schedule_time` — send-time logic lives in
+business-core. Migration is idempotent (`IF NOT EXISTS`).
 
 ---
 

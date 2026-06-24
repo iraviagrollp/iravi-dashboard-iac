@@ -1,5 +1,7 @@
 # ── Alerts Evaluator Lambda + EventBridge cron ─────────────────────────────────
-# Runs on a daily cron (05:30 UTC = 11:00 IST).
+# Runs every 15 minutes (rate(15 minutes)).
+# Each alert carries its own schedule_time (IST wall-clock); the Lambda
+# self-selects which alerts are due for the current 15-minute window.
 # Reads active alert rules from the alerts/* tables, queries
 # snapshot_customer_balances for matching rows, and emails results via SES.
 # Layer: reuses api_deps (psycopg2-binary + redis-py) — no new pip layer needed.
@@ -118,12 +120,16 @@ resource "aws_lambda_function" "alerts_evaluator" {
   tags = { Name = local.alerts_evaluator_name }
 }
 
-# ── EventBridge cron — 05:30 UTC = 11:00 AM IST daily ────────────────────────
+# ── EventBridge rule — every 15 minutes ──────────────────────────────────────
+# Previously a daily cron (cron(30 5 * * ? *) = 11:00 IST). Changed to
+# rate(15 minutes) so the Lambda can fire per-alert schedule_time windows.
+# Send time is now per-alert (alerts.schedule_time, IST); business-core
+# owns the logic that selects which alerts are due on each invocation.
 
 resource "aws_cloudwatch_event_rule" "alerts_evaluator_cron" {
   name                = "${var.project}-alerts-evaluator-cron"
-  description         = "Daily trigger for alerts_evaluator at 05:30 UTC (11:00 IST)"
-  schedule_expression = "cron(30 5 * * ? *)"
+  description         = "Triggers alerts_evaluator every 15 minutes; send time is per-alert (alerts.schedule_time)"
+  schedule_expression = "rate(15 minutes)"
 }
 
 resource "aws_cloudwatch_event_target" "alerts_evaluator" {
