@@ -20,7 +20,8 @@ Region: `ap-south-1` (Mumbai).
 | Alerts Evaluator Lambda | `iravi-dashboard-alerts-evaluator` — Python 3.12, 256 MB, 300 s, reuses `api_deps` layer; EventBridge `rate(15 minutes)` — send time is per-alert (`alerts.schedule_time`, IST); Lambda self-selects which alerts are due each invocation (was daily `cron(30 5 * * ? *)`) |
 | Alerts API routes | 6 admin-only routes in `api_rbac_routes`: `GET/POST /alerts`, `PUT/DELETE /alerts/{id}`, `GET /alerts/fields`, `POST /alerts/{id}/test` |
 | CI/CD | GitHub Actions — fmt + validate on PR (Stage 1); plan + apply coming after AWS account setup |
-| Diagram | Visual architecture diagram — `design/aws-architecture-diagram.html` (git-ignored, local only) |
+| Diagram (SVG) | `design/system-architecture-diagram.html` — dark-theme SVG across all four repos; Alerts subsystem added (cron, evaluator, SES, recipients); DB tables 013–014; API routes; git-ignored, local only |
+| Diagram (HTML) | `design/combined-system-architecture.html` — AWS Reference Architecture style HTML; same Alerts additions + repo-card updates; git-ignored, local only |
 | Setup Guide | AWS account setup guide — `design/aws-account-setup-guide.html` (git-ignored, local only) |
 | Connection Guide | Bastion SSM port forwarding + schema runner guide — `design/bastion-rds-connection-guide.html` (git-ignored, local only) |
 
@@ -167,7 +168,8 @@ IaC/
 │       ├── 011_add_customer_code_to_customer_details.sql
 │       ├── 012_widen_customer_ledger_amount.sql
 │       ├── 013_create_alerts.sql                ← alerts/alert_conditions/alert_recipients/alert_runs
-│       └── 014_add_alert_schedule_time.sql      ← adds schedule_time TIME DEFAULT '11:00:00' to alerts
+│       ├── 014_add_alert_schedule_time.sql      ← adds schedule_time TIME DEFAULT '11:00:00' to alerts
+│       └── 015_add_alert_branch.sql             ← adds nullable branch VARCHAR(100) to alerts (sales/sale_returns scope)
 └── terraform/
     ├── bootstrap/                  ← Run ONCE first — creates remote state storage
     │   └── main.tf
@@ -198,7 +200,7 @@ IaC/
             ├── lambda_redis_updater.tf      ← Redis updater + 3 EventBridge rules (stocks/ledger/sales success)
             ├── lambda_api.tf               ← API Lambda + API Gateway HTTP API + api_deps layer; RBAC /auth/* + /admin/* routes; alerts CRUD routes (admin-only); GET /reports/customer-balances-fy route
             ├── ses.tf                      ← SES domain identity + DKIM for alerts emails; outputs DNS records
-            ├── lambda_alerts_evaluator.tf  ← Alerts Evaluator Lambda + EventBridge daily cron (11:00 IST)
+            ├── lambda_alerts_evaluator.tf  ← Alerts Evaluator Lambda + EventBridge rate(15 min); SES IAM covers domain + address-level identities (identity/*)
             └── amplify.tf                  ← Amplify app env vars (ONE-TIME import required — see Step 4a)
 ```
 
@@ -441,6 +443,14 @@ the previous 11:00 IST behaviour for existing rows. Apply after migration 013. T
 alerts are due for the current window based on `schedule_time` — send-time logic lives in
 business-core. Migration is idempotent (`IF NOT EXISTS`).
 
+**Migration 015 — `alerts.branch` (branch-scoped sales alerts):**
+Adds a nullable `branch VARCHAR(100)` column to the `alerts` table. Used by the new `sales` and
+`sale_returns` alert categories to restrict evaluation to a specific branch. `NULL` or `'ALL'`
+means all branches; the column is ignored for `balances`-category alerts. Apply after migration 014.
+No IaC Lambda change is required — the branch-filter evaluation logic lives entirely in
+business-core (`alerts_evaluator`), which redeploys on the next `terraform apply`. Migration is
+idempotent (`IF NOT EXISTS`).
+
 ---
 
 ## SES Setup (alerts email)
@@ -559,6 +569,9 @@ Parked decisions — do not act on these without explicit discussion. Revisit as
 
 **Amplify build fails with missing env vars**
 → Confirm `TF_VAR_dashboard_username` and `TF_VAR_dashboard_password` GitHub Actions secrets are set. After adding them, re-run `terraform apply` — Amplify env vars are only pushed on apply, not automatically.
+
+**Alerts evaluator Lambda errors with `AccessDenied` on `ses:SendEmail`**
+→ The Lambda IAM policy's SES `Resource` only covered the domain identity ARN (`identity/iraviagrolife.com`). When the From address is an address-level verified identity (e.g. `kranthi@iraviagrolife.com`), SES authorises against `identity/kranthi@iraviagrolife.com` — a different ARN — so the request is denied. The fix (applied 2026-06-25) broadens `Resource` to a two-element list: the domain identity ARN and `arn:aws:ses:<region>:<account>:identity/*`, covering any verified address under the account. Requires an IaC apply to take effect; as a stopgap the role policy can be edited manually in IAM console, but apply will reconcile it.
 
 **Alerts evaluator Lambda errors with `MessageRejected` from SES**
 → The SES domain identity is not yet verified, or the account is still in sandbox mode. Check SES Console → Verified identities for the domain status. If status is `Pending`, the DNS records (Step 1 of SES setup above) have not propagated yet. If the domain is verified but the recipient is not, you are in sandbox — add the recipient as a verified identity or request production access.

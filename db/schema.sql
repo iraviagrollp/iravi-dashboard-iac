@@ -444,6 +444,9 @@ CREATE TABLE alerts (
     id            SERIAL PRIMARY KEY,
     name          VARCHAR(120)  NOT NULL,
     category      VARCHAR(40)   NOT NULL DEFAULT 'balances',
+    -- Scopes sales/sale_returns alerts to a specific branch. NULL or 'ALL' = all branches.
+    -- Ignored by balances-category alerts.
+    branch        VARCHAR(100),
     frequency     VARCHAR(10)   NOT NULL,
     schedule_day  SMALLINT,
     match_type    VARCHAR(3)    NOT NULL DEFAULT 'all',
