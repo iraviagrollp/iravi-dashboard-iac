@@ -51,11 +51,13 @@ D:\Projects\Iravi\
 │   │       ├── 008_create_sales.sql
 │   │       ├── 009_create_rbac.sql
 │   │       └── 010_add_customer_balances_fy_screen.sql
-│   ├── design/
+│   ├── design/                               ← git-ignored (local only)
 │   │   ├── stakeholder-presentation.html
-│   │   ├── aws-architecture-diagram.html
+│   │   ├── system-architecture-diagram.html  ← dark SVG, full four-repo diagram (updated 2026-06-25: alerts, SES, mig 013-014, new API routes)
+│   │   ├── combined-system-architecture.html ← HTML ref-arch style, same content (updated 2026-06-25)
+│   │   ├── aws-architecture-diagram.html     ← older diagram (superseded by system-architecture-diagram.html)
 │   │   ├── aws-account-setup-guide.html
-│   │   └── bastion-rds-connection-guide.html  ← SSM port forwarding + schema runner guide
+│   │   └── bastion-rds-connection-guide.html ← SSM port forwarding + schema runner guide
 │   └── terraform/
 │       ├── bootstrap/
 │       │   └── main.tf                 ← creates S3 state bucket + DynamoDB lock (run once)
@@ -313,6 +315,11 @@ terraform import aws_amplify_app.dashboard <AMPLIFY_APP_ID>
 ```
 Find the App ID in the Amplify console URL (e.g. `d1a2b3c4e5f6g7`). Without this import, `terraform apply` will attempt to create a duplicate Amplify app.
 
+### SES IAM — domain identity vs address-level identity
+SES has two flavours of verified identity: **domain** (`identity/iraviagrolife.com`) and **address** (`identity/kranthi@iraviagrolife.com`). When a Lambda calls `ses:SendEmail`, AWS evaluates the IAM policy against the ARN of the **sender** identity, not the domain. If the From address is `kranthi@iraviagrolife.com` and the policy `Resource` only covers `identity/iraviagrolife.com`, the call gets `AccessDenied` even though the domain is verified.
+
+Fix: scope the SES `Resource` to a two-element list — the domain identity ARN **plus** `arn:aws:ses:<region>:<account>:identity/*` — so any verified identity under the account/region is authorised. `data.aws_caller_identity.current` (already declared in `main.tf`) and `var.aws_region` provide the interpolation values.
+
 ### Terraform outputs needed downstream
 After `terraform apply`, capture these — they are inputs to every Lambda built next:
 ```
@@ -412,6 +419,7 @@ Every run writes a row to `etl_runs`: `run_date`, `started_at`, `completed_at`, 
 - [x] GitHub Actions pipeline — all 3 stages active (fmt + validate on PR, plan on PR, apply on merge to main)
 - [x] Terraform — Bastion host EC2 with SSM Session Manager (no SSH, no key pair, no IP allowlist)
 - [x] AWS architecture diagram (`design/aws-architecture-diagram.html`)
+- [x] System architecture diagrams refreshed (2026-06-25) — `design/system-architecture-diagram.html` (SVG, dark theme) and `design/combined-system-architecture.html` (HTML ref-arch style) updated to include: Alerts subsystem (EventBridge cron rate(15 min) → alerts_evaluator Lambda → Amazon SES → email recipients); alerts/alert_conditions/alert_recipients/alert_runs tables (mig 013–014); GET /reports/customer-balances-fy and GET|POST|PUT|DELETE /alerts/* routes on API Lambda; SES node (ses.tf); customer_details.customer_code (mig 011); customer_ledger.amount precision (mig 012). Both files are git-ignored (local only — open in browser for visual check).
 - [x] AWS account setup guide (`design/aws-account-setup-guide.html`)
 - [x] AWS Account + OIDC setup — account live, `terraform-deployer` role created, pipeline stages 2 & 3 enabled, `terraform apply` run, all infra provisioned
 - [x] File Sync Agent — deployed and running on FUSIL PRO server · `D:\Projects\Iravi\FileSyncAgent\`
@@ -447,7 +455,7 @@ Every run writes a row to `etl_runs`: `run_date`, `started_at`, `completed_at`, 
 - [x] DB migrations — `012_widen_customer_ledger_amount.sql` — widens `customer_ledger.amount` from `NUMERIC(15,2)` to `NUMERIC(15,4)`; the "Ledger All Accounts" export contains GST component lines at 3 decimal places (e.g. 6498.675) — storing at 2dp rounded them and produced a 1-paise drift when components were summed per voucher; schema.sql updated to match; NOT YET APPLIED — apply manually via psql over the SSM tunnel, then RE-INGEST the ledger file(s) (existing rows were already truncated and cannot be recovered by the ALTER alone), then flush the Redis cache
 - [x] DB migrations — `013_create_alerts.sql` — creates `alerts`, `alert_conditions`, `alert_recipients`, `alert_runs` tables with check constraints; all relational (no JSONB); schema.sql updated to match; NOT YET APPLIED — apply manually via psql over the SSM tunnel post-merge
 - [x] Terraform — `ses.tf` — SES domain identity for `var.alerts_domain` (default `iraviagrolife.com`) + DKIM configuration; outputs `ses_domain_verification_token`, `ses_dkim_tokens` (3 CNAMEs), `ses_identity_arn`; `aws_ses_configuration_set` named `${project}-alerts`; two manual steps required: (a) add DNS records, (b) request SES production access
-- [x] Terraform — `lambda_alerts_evaluator.tf` — Alerts Evaluator Lambda (`python3.12`, handler `handler.lambda_handler`, 256 MB, 300 s timeout); reuses `api_deps` layer (psycopg2); VPC private subnets + sg_lambda; env: `DB_SECRET_ARN`, `ALERTS_SENDER_EMAIL`; IAM: GetSecretValue on DB secret + ses:SendEmail/SendRawEmail scoped to SES identity ARN; EventBridge schedule changed from daily `cron(30 5 * * ? *)` (11:00 IST) to `rate(15 minutes)` — send time is now per-alert (`alerts.schedule_time`); business-core Lambda self-selects which alerts are due each invocation
+- [x] Terraform — `lambda_alerts_evaluator.tf` — Alerts Evaluator Lambda (`python3.12`, handler `handler.lambda_handler`, 256 MB, 300 s timeout); reuses `api_deps` layer (psycopg2); VPC private subnets + sg_lambda; env: `DB_SECRET_ARN`, `ALERTS_SENDER_EMAIL`; IAM: GetSecretValue on DB secret + ses:SendEmail/SendRawEmail; EventBridge schedule changed from daily `cron(30 5 * * ? *)` (11:00 IST) to `rate(15 minutes)` — send time is now per-alert (`alerts.schedule_time`); business-core Lambda self-selects which alerts are due each invocation. **SES IAM scoping fix (2026-06-25):** `Resource` in the SES statement was broadened from the domain identity ARN alone to a two-element list — `[aws_ses_domain_identity.alerts.arn, "arn:aws:ses:<region>:<account>:identity/*"]` — because SES authorises `SendEmail` against the *sender* identity ARN, and an address-level verified identity (e.g. `kranthi@iraviagrolife.com`) resolves to `identity/kranthi@iraviagrolife.com`, not `identity/iraviagrolife.com`; the domain-only scope caused `AccessDenied`.
 - [x] DB migrations — `014_add_alert_schedule_time.sql` — adds `schedule_time TIME NOT NULL DEFAULT '11:00:00'` to `alerts` table; default preserves legacy 11:00 IST behaviour for existing rows; schema.sql updated to match; NOT YET APPLIED — apply manually via psql over the SSM tunnel post-merge
 - [x] Terraform — `lambda_api.tf` alerts routes — `GET /alerts`, `POST /alerts`, `PUT /alerts/{id}`, `DELETE /alerts/{id}`, `GET /alerts/fields`, `POST /alerts/{id}/test` added to `api_rbac_routes` local; enforced in Lambda handler (valid JWT + is_admin); CORS already covers all methods via existing cors_configuration block
 
@@ -474,12 +482,13 @@ Every run writes a row to `etl_runs`: `run_date`, `started_at`, `completed_at`, 
 
 - [ ] **One-time historical migration** — 1 month of transaction files through ETL Lambda; stock history starts from go-live
 
-### Alerts feature — post-merge manual steps
-- [ ] Push `business-core/lambda/alerts_evaluator/` BEFORE merging this IaC PR (Terraform reads source at validate time); update evaluator to self-select alerts by `schedule_time` on each 15-minute invocation
-- [ ] After `terraform apply`: run `terraform output ses_dkim_tokens` and add the 3 CNAMEs + TXT record to DNS
-- [ ] Request SES production access via AWS Console (sandbox → production); test with verified addresses in sandbox first
-- [ ] Apply migration `013_create_alerts.sql` manually via psql over the SSM tunnel (if not already applied)
-- [ ] Apply migration `014_add_alert_schedule_time.sql` manually via psql over the SSM tunnel (adds `schedule_time` column to `alerts`)
+### Alerts feature — remaining manual steps (system is DEPLOYED; these are post-deploy operational tasks)
+- [x] `business-core/lambda/alerts_evaluator/` pushed before IaC merge (Terraform validates source at plan time); evaluator self-selects alerts by `schedule_time` on each 15-minute invocation
+- [x] `terraform apply` has provisioned `ses.tf` + `lambda_alerts_evaluator.tf` (EventBridge rate(15 min) cron, IAM, env vars)
+- [x] Migration `013_create_alerts.sql` applied manually via psql over the SSM tunnel
+- [x] Migration `014_add_alert_schedule_time.sql` applied manually via psql over the SSM tunnel (`schedule_time` column on `alerts` table)
+- [ ] SES DNS records — run `terraform output ses_dkim_tokens` and add the 3 CNAMEs + TXT `_amazonses` record to the DNS provider; SES auto-verifies within 72 h
+- [ ] Request SES production access via AWS Console (Account dashboard → Request production access); until approved, add each alert recipient as a verified identity in SES sandbox
 - [ ] iravi-ui: build the Alerts admin screen (`GET/POST/PUT/DELETE /alerts`, `GET /alerts/fields`, `POST /alerts/{id}/test`); expose `schedule_time` as a time-picker field on the alert form
 
 ---

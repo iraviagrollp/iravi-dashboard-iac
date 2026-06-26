@@ -72,8 +72,17 @@ resource "aws_iam_role_policy" "alerts_evaluator" {
           "ses:SendEmail",
           "ses:SendRawEmail",
         ]
-        # Scope to the verified domain identity ARN only
-        Resource = aws_ses_domain_identity.alerts.arn
+        # Cover both the domain identity (identity/iraviagrolife.com) AND any
+        # address-level verified identity under this account+region
+        # (e.g. identity/kranthi@iraviagrolife.com, identity/noreply@iraviagrolife.com).
+        # SES authorises SendEmail against the *sender* identity ARN, which for an
+        # address-verified identity is identity/<address> — not the domain ARN —
+        # so scoping to the domain ARN alone causes AccessDenied when the Lambda
+        # sends from kranthi@iraviagrolife.com or any other address-level identity.
+        Resource = [
+          aws_ses_domain_identity.alerts.arn,
+          "arn:aws:ses:${var.aws_region}:${data.aws_caller_identity.current.account_id}:identity/*",
+        ]
       },
     ]
   })
