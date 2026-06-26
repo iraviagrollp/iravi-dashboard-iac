@@ -168,7 +168,8 @@ IaC/
 │       ├── 011_add_customer_code_to_customer_details.sql
 │       ├── 012_widen_customer_ledger_amount.sql
 │       ├── 013_create_alerts.sql                ← alerts/alert_conditions/alert_recipients/alert_runs
-│       └── 014_add_alert_schedule_time.sql      ← adds schedule_time TIME DEFAULT '11:00:00' to alerts
+│       ├── 014_add_alert_schedule_time.sql      ← adds schedule_time TIME DEFAULT '11:00:00' to alerts
+│       └── 015_add_alert_branch.sql             ← adds nullable branch VARCHAR(100) to alerts (sales/sale_returns scope)
 └── terraform/
     ├── bootstrap/                  ← Run ONCE first — creates remote state storage
     │   └── main.tf
@@ -441,6 +442,14 @@ the previous 11:00 IST behaviour for existing rows. Apply after migration 013. T
 `alerts_evaluator` Lambda now runs every 15 minutes (`rate(15 minutes)`) and self-selects which
 alerts are due for the current window based on `schedule_time` — send-time logic lives in
 business-core. Migration is idempotent (`IF NOT EXISTS`).
+
+**Migration 015 — `alerts.branch` (branch-scoped sales alerts):**
+Adds a nullable `branch VARCHAR(100)` column to the `alerts` table. Used by the new `sales` and
+`sale_returns` alert categories to restrict evaluation to a specific branch. `NULL` or `'ALL'`
+means all branches; the column is ignored for `balances`-category alerts. Apply after migration 014.
+No IaC Lambda change is required — the branch-filter evaluation logic lives entirely in
+business-core (`alerts_evaluator`), which redeploys on the next `terraform apply`. Migration is
+idempotent (`IF NOT EXISTS`).
 
 ---
 

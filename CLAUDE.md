@@ -219,7 +219,7 @@ Target: Amazon RDS PostgreSQL 16 — database name `iravi_dashboard`
 | `app_screens` | RBAC (seeded) | `screen_key` |
 | `app_role_screens` | RBAC map | `(role_id, screen_key)` |
 | `app_users` | RBAC | `username` |
-| `alerts` | Alerts config | `id` (SERIAL PK); `frequency` in (daily/weekly/monthly); `match_type` all/any; `schedule_time TIME DEFAULT '11:00:00'` (per-alert IST send time, added migration 014) |
+| `alerts` | Alerts config | `id` (SERIAL PK); `frequency` in (daily/weekly/monthly); `match_type` all/any; `schedule_time TIME DEFAULT '11:00:00'` (per-alert IST send time, added migration 014); `branch VARCHAR(100)` nullable (added migration 015 — scopes sales/sale_returns alerts to a branch; NULL or 'ALL' = all branches) |
 | `alert_conditions` | Alerts filter rows | `alert_id` FK → alerts; `op` in (gt/gte/lt/lte/eq/between) |
 | `alert_recipients` | Alert email addresses | `alert_id` FK → alerts; `channel` = 'email' |
 | `alert_runs` | Alert audit log | `alert_id` FK → alerts; records each evaluator invocation |
@@ -458,6 +458,7 @@ Every run writes a row to `etl_runs`: `run_date`, `started_at`, `completed_at`, 
 - [x] Terraform — `lambda_alerts_evaluator.tf` — Alerts Evaluator Lambda (`python3.12`, handler `handler.lambda_handler`, 256 MB, 300 s timeout); reuses `api_deps` layer (psycopg2); VPC private subnets + sg_lambda; env: `DB_SECRET_ARN`, `ALERTS_SENDER_EMAIL`; IAM: GetSecretValue on DB secret + ses:SendEmail/SendRawEmail; EventBridge schedule changed from daily `cron(30 5 * * ? *)` (11:00 IST) to `rate(15 minutes)` — send time is now per-alert (`alerts.schedule_time`); business-core Lambda self-selects which alerts are due each invocation. **SES IAM scoping fix (2026-06-25):** `Resource` in the SES statement was broadened from the domain identity ARN alone to a two-element list — `[aws_ses_domain_identity.alerts.arn, "arn:aws:ses:<region>:<account>:identity/*"]` — because SES authorises `SendEmail` against the *sender* identity ARN, and an address-level verified identity (e.g. `kranthi@iraviagrolife.com`) resolves to `identity/kranthi@iraviagrolife.com`, not `identity/iraviagrolife.com`; the domain-only scope caused `AccessDenied`.
 - [x] DB migrations — `014_add_alert_schedule_time.sql` — adds `schedule_time TIME NOT NULL DEFAULT '11:00:00'` to `alerts` table; default preserves legacy 11:00 IST behaviour for existing rows; schema.sql updated to match; NOT YET APPLIED — apply manually via psql over the SSM tunnel post-merge
 - [x] Terraform — `lambda_api.tf` alerts routes — `GET /alerts`, `POST /alerts`, `PUT /alerts/{id}`, `DELETE /alerts/{id}`, `GET /alerts/fields`, `POST /alerts/{id}/test` added to `api_rbac_routes` local; enforced in Lambda handler (valid JWT + is_admin); CORS already covers all methods via existing cors_configuration block
+- [x] DB migrations — `015_add_alert_branch.sql` — adds nullable `branch VARCHAR(100)` column to `alerts` table; scopes sales/sale_returns category alerts to a specific branch (NULL or 'ALL' = all branches; balances alerts ignore this column); schema.sql updated to match; NOT YET APPLIED — apply manually via psql over the SSM tunnel post-merge; alerts_evaluator branch-filter logic lives in business-core (no IaC Lambda change required — redeploys on next apply)
 
 **Stocks pipeline is complete end-to-end.** Current Stocks UI is built and ready to deploy. Redis cache is populated nightly by redis_updater after `ETLStocksSuccess` event.
 
@@ -483,7 +484,7 @@ Every run writes a row to `etl_runs`: `run_date`, `started_at`, `completed_at`, 
 - [ ] **One-time historical migration** — 1 month of transaction files through ETL Lambda; stock history starts from go-live
 
 ### Alerts feature — remaining manual steps (system is DEPLOYED; these are post-deploy operational tasks)
-- [x] `business-core/lambda/alerts_evaluator/` pushed before IaC merge (Terraform validates source at plan time); evaluator self-selects alerts by `schedule_time` on each 15-minute invocation
+- [x] `business-core/lambda/alerts_evaluator/` pushed before IaC merge (Terraform validates source at plan time); evaluator self-selects alerts by `schedule_time` on each 15-minute invocation; now also handles `sales` and `sale_returns` aggregate alert categories in addition to `balances` — branch-scoped evaluation controlled by `alerts.branch` (migration 015)
 - [x] `terraform apply` has provisioned `ses.tf` + `lambda_alerts_evaluator.tf` (EventBridge rate(15 min) cron, IAM, env vars)
 - [x] Migration `013_create_alerts.sql` applied manually via psql over the SSM tunnel
 - [x] Migration `014_add_alert_schedule_time.sql` applied manually via psql over the SSM tunnel (`schedule_time` column on `alerts` table)
