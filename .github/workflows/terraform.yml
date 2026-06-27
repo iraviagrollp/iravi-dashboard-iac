@@ -199,6 +199,15 @@ jobs:
             --platform manylinux2014_x86_64 --implementation cp --python-version 3.12 \
             --only-binary=:all: --upgrade --quiet
 
+      - name: Build etl_supplier_accounts layer
+        run: |
+          mkdir -p terraform/environments/production/.lambda_layers/etl_supplier_accounts/python
+          pip install \
+            -r business-core/lambda/etl_supplier_accounts/requirements.txt \
+            -t terraform/environments/production/.lambda_layers/etl_supplier_accounts/python \
+            --platform manylinux2014_x86_64 --implementation cp --python-version 3.12 \
+            --only-binary=:all: --upgrade --quiet
+
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "~1.6"
@@ -349,6 +358,15 @@ jobs:
           pip install \
             -r business-core/lambda/etl_appendix_b_x11_sale_return/requirements.txt \
             -t terraform/environments/production/.lambda_layers/etl_appendix_b_x11_sale_return/python \
+            --platform manylinux2014_x86_64 --implementation cp --python-version 3.12 \
+            --only-binary=:all: --upgrade --quiet
+
+      - name: Build etl_supplier_accounts layer
+        run: |
+          mkdir -p terraform/environments/production/.lambda_layers/etl_supplier_accounts/python
+          pip install \
+            -r business-core/lambda/etl_supplier_accounts/requirements.txt \
+            -t terraform/environments/production/.lambda_layers/etl_supplier_accounts/python \
             --platform manylinux2014_x86_64 --implementation cp --python-version 3.12 \
             --only-binary=:all: --upgrade --quiet
 

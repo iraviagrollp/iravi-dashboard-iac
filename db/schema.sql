@@ -54,6 +54,30 @@ CREATE TABLE customer_details (
 CREATE INDEX idx_customer_details_code ON customer_details (customer_code);
 
 
+-- Supplier Accounts Export File. One active row per supplier name (natural key).
+-- Uni-temporal milestoning: in_z/out_z track versions; out_z IS NULL = current record.
+-- business-core closes the open row for a name then inserts a fresh one each run.
+-- (migration 016)
+CREATE TABLE supplier_accounts (
+    id        BIGSERIAL PRIMARY KEY,
+    name      VARCHAR(255)  NOT NULL,
+    gst       VARCHAR(20),
+    gst_valid BOOLEAN,
+    city      VARCHAR(120),
+    state     VARCHAR(100),
+    in_z      TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+    out_z     TIMESTAMPTZ             -- NULL = current record
+);
+
+-- Enforce one active version per supplier name at a time.
+CREATE UNIQUE INDEX uix_supplier_accounts_active
+    ON supplier_accounts (name)
+    WHERE out_z IS NULL;
+
+CREATE INDEX idx_supplier_accounts_name  ON supplier_accounts (name);
+CREATE INDEX idx_supplier_accounts_out_z ON supplier_accounts (out_z) WHERE out_z IS NULL;
+
+
 -- ============================================================
 -- TRANSACTION FACT TABLES
 -- Append daily. Upsert on natural business key to stay idempotent.

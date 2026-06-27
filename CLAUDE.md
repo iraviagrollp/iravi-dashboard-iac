@@ -223,6 +223,7 @@ Target: Amazon RDS PostgreSQL 16 — database name `iravi_dashboard`
 | `alert_conditions` | Alerts filter rows | `alert_id` FK → alerts; `op` in (gt/gte/lt/lte/eq/between) |
 | `alert_recipients` | Alert email addresses | `alert_id` FK → alerts; `channel` = 'email' |
 | `alert_runs` | Alert audit log | `alert_id` FK → alerts; records each evaluator invocation |
+| `supplier_accounts` | Master (uni-temporal milestoned) | natural key `name`; `out_z IS NULL` = current active supplier; business-core closes old row then inserts fresh one each run (migration 016) |
 
 ### Migrations convention
 One-off DML repairs and data fixes live in `db/migrations/` as numbered SQL files (`001_...`, `002_...`). They are not run automatically — apply manually via psql through the SSM tunnel. Always commit the migration file alongside the code change that made it necessary so the git history explains why it was run.
@@ -305,6 +306,7 @@ Do NOT use `null_resource` + `local-exec` provisioner to run pip install inside 
 - `etl_stocks` → `.lambda_layers/etl_stocks/python/`
 - `api_deps` → `.lambda_layers/api_deps/python/` — **shared** between `api` and `redis_updater` Lambdas
 - `etl_customer_ledger` → `.lambda_layers/etl_customer_ledger/python/`
+- `etl_supplier_accounts` → `.lambda_layers/etl_supplier_accounts/python/`
 
 The step creates the directory with Linux-compatible wheels; Terraform's `archive_file` zips it normally. When adding a new Lambda with a layer, add the corresponding pip install step to both plan and apply jobs in `.github/workflows/terraform.yml`.
 
@@ -459,6 +461,10 @@ Every run writes a row to `etl_runs`: `run_date`, `started_at`, `completed_at`, 
 - [x] DB migrations — `014_add_alert_schedule_time.sql` — adds `schedule_time TIME NOT NULL DEFAULT '11:00:00'` to `alerts` table; default preserves legacy 11:00 IST behaviour for existing rows; schema.sql updated to match; NOT YET APPLIED — apply manually via psql over the SSM tunnel post-merge
 - [x] Terraform — `lambda_api.tf` alerts routes — `GET /alerts`, `POST /alerts`, `PUT /alerts/{id}`, `DELETE /alerts/{id}`, `GET /alerts/fields`, `POST /alerts/{id}/test` added to `api_rbac_routes` local; enforced in Lambda handler (valid JWT + is_admin); CORS already covers all methods via existing cors_configuration block
 - [x] DB migrations — `015_add_alert_branch.sql` — adds nullable `branch VARCHAR(100)` column to `alerts` table; scopes sales/sale_returns category alerts to a specific branch (NULL or 'ALL' = all branches; balances alerts ignore this column); schema.sql updated to match; NOT YET APPLIED — apply manually via psql over the SSM tunnel post-merge; alerts_evaluator branch-filter logic lives in business-core (no IaC Lambda change required — redeploys on next apply)
+- [x] DB migrations — `016_create_supplier_accounts.sql` — creates `supplier_accounts` table (uni-temporal milestoned, natural key `name`, BIGSERIAL PK); partial unique index `uix_supplier_accounts_active` enforces one active row per supplier name; schema.sql updated to match; NOT YET APPLIED — apply manually via psql over the SSM tunnel post-merge after terraform apply has provisioned `lambda_etl_supplier_accounts`
+- [x] Terraform — `lambda_etl_supplier_accounts.tf` — Supplier Accounts ETL Lambda (`python3.12`, handler `handler.lambda_handler`, 256 MB, 120 s); own pip layer at `.lambda_layers/etl_supplier_accounts/`; IAM: VPCNetworking + Logs + SecretsManager(db) + S3 Get/Put/Delete + ListBucket; env: DATA_BUCKET, DB_SECRET_ARN; VPC private subnets + sg_lambda; source: `business-core/lambda/etl_supplier_accounts/`; business-core must be pushed BEFORE this repo is planned/applied
+- [x] Terraform — `lambda_etl_sales.tf` shared S3 bucket notification extended — added `lambda_function` block for `etl_supplier_accounts` with prefix `raw/Supplier` and suffix `.xlsx`; `aws_lambda_permission.s3_invoke_etl_supplier_accounts` added to `depends_on`; no new `aws_s3_bucket_notification` resource created (single-resource-per-bucket rule preserved)
+- [x] CI — `.github/workflows/terraform.yml` — "Build etl_supplier_accounts layer" pip-install step added to BOTH the plan job AND the apply job; installs into `.lambda_layers/etl_supplier_accounts/python/` with linux-compatible wheels
 
 **Stocks pipeline is complete end-to-end.** Current Stocks UI is built and ready to deploy. Redis cache is populated nightly by redis_updater after `ETLStocksSuccess` event.
 
