@@ -135,7 +135,8 @@ resource "aws_lambda_permission" "s3_invoke_etl_sales" {
 # All .xlsx uploads to raw/ fan out to ETL Lambdas.
 # Each handler filters to its own file pattern — do NOT add more notification resources.
 resource "aws_s3_bucket_notification" "etl_trigger" {
-  bucket = aws_s3_bucket.data.id
+  bucket      = aws_s3_bucket.data.id
+  eventbridge = true
 
   lambda_function {
     lambda_function_arn = aws_lambda_function.etl_sales.arn

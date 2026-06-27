@@ -75,9 +75,10 @@ D:\Projects\Iravi\
 │               ├── monitoring.tf       ← SNS + 5 CloudWatch alarms
 │               ├── schema_runner.tf    ← removed (apply schema via SSM + psql)
 │               ├── bastion.tf          ← Bastion EC2 — SSM Session Manager, no SSH
-│               ├── lambda_etl_sales.tf ← ETL Lambda + shared S3 bucket notification (fans out to etl_sales on prefix "raw/RGF Sales Book", etl_stocks on "raw/Current", etl_customer_ledger on "raw/Ledger")
+│               ├── lambda_etl_sales.tf ← ETL Lambda + shared S3 bucket notification (fans out to etl_sales on prefix "raw/RGF Sales Book", etl_stocks on "raw/Current", etl_customer_ledger on "raw/Ledger"; `eventbridge = true` added — S3 also forwards all events to EventBridge for etl_supplier_ledger)
 │               ├── lambda_etl_stocks.tf ← Stock balance ETL Lambda (S3 trigger via shared notification in lambda_etl_sales.tf)
 │               ├── lambda_etl_customer_ledger.tf ← Customer Ledger ETL Lambda (S3 trigger via shared notification; upserts customer_ledger with uni-temporal milestoning)
+│               ├── lambda_etl_supplier_ledger.tf ← Supplier Ledger ETL Lambda (EventBridge trigger on raw/Ledger; read-only S3; upserts supplier_ledger; same file as etl_customer_ledger but different rows)
 │               ├── lambda_redis_updater.tf ← Redis Updater + EventBridge trigger
 │               ├── lambda_api.tf       ← API Lambda + API Gateway HTTP API; RBAC /auth/* + /admin/* routes (incl. POST /admin/cache/flush); CORS GET/POST/PUT/DELETE; GET /reports/customer-balances-fy route added (migration 010); alerts CRUD routes added to api_rbac_routes (admin-only)
 │               ├── ses.tf              ← SES domain identity + DKIM for alerts emails (alerts_domain var); outputs verification token + DKIM CNAMEs
@@ -224,6 +225,7 @@ Target: Amazon RDS PostgreSQL 16 — database name `iravi_dashboard`
 | `alert_recipients` | Alert email addresses | `alert_id` FK → alerts; `channel` = 'email' |
 | `alert_runs` | Alert audit log | `alert_id` FK → alerts; records each evaluator invocation |
 | `supplier_accounts` | Master (uni-temporal milestoned) | natural key `name`; `out_z IS NULL` = current active supplier; business-core closes old row then inserts fresh one each run (migration 016) |
+| `supplier_ledger` | Snapshot (uni-temporal milestoned) | natural key `(transaction_date, voucher_no, account_name, category, sub_category)`; `out_z IS NULL` = current; same shape as `customer_ledger`; populated by `etl_supplier_ledger` Lambda from the same "Ledger All Accounts" file (migration 017) |
 
 ### Migrations convention
 One-off DML repairs and data fixes live in `db/migrations/` as numbered SQL files (`001_...`, `002_...`). They are not run automatically — apply manually via psql through the SSM tunnel. Always commit the migration file alongside the code change that made it necessary so the git history explains why it was run.
@@ -307,6 +309,7 @@ Do NOT use `null_resource` + `local-exec` provisioner to run pip install inside 
 - `api_deps` → `.lambda_layers/api_deps/python/` — **shared** between `api` and `redis_updater` Lambdas
 - `etl_customer_ledger` → `.lambda_layers/etl_customer_ledger/python/`
 - `etl_supplier_accounts` → `.lambda_layers/etl_supplier_accounts/python/`
+- `etl_supplier_ledger` → `.lambda_layers/etl_supplier_ledger/python/`
 
 The step creates the directory with Linux-compatible wheels; Terraform's `archive_file` zips it normally. When adding a new Lambda with a layer, add the corresponding pip install step to both plan and apply jobs in `.github/workflows/terraform.yml`.
 
@@ -465,6 +468,10 @@ Every run writes a row to `etl_runs`: `run_date`, `started_at`, `completed_at`, 
 - [x] Terraform — `lambda_etl_supplier_accounts.tf` — Supplier Accounts ETL Lambda (`python3.12`, handler `handler.lambda_handler`, 256 MB, 120 s); own pip layer at `.lambda_layers/etl_supplier_accounts/`; IAM: VPCNetworking + Logs + SecretsManager(db) + S3 Get/Put/Delete + ListBucket; env: DATA_BUCKET, DB_SECRET_ARN; VPC private subnets + sg_lambda; source: `business-core/lambda/etl_supplier_accounts/`; business-core must be pushed BEFORE this repo is planned/applied
 - [x] Terraform — `lambda_etl_sales.tf` shared S3 bucket notification extended — added `lambda_function` block for `etl_supplier_accounts` with prefix `raw/Supplier` and suffix `.xlsx`; `aws_lambda_permission.s3_invoke_etl_supplier_accounts` added to `depends_on`; no new `aws_s3_bucket_notification` resource created (single-resource-per-bucket rule preserved)
 - [x] CI — `.github/workflows/terraform.yml` — "Build etl_supplier_accounts layer" pip-install step added to BOTH the plan job AND the apply job; installs into `.lambda_layers/etl_supplier_accounts/python/` with linux-compatible wheels
+- [x] DB migrations — `017_create_supplier_ledger.sql` — creates `supplier_ledger` table (identical shape to `customer_ledger`, uni-temporal milestoned, natural key `(transaction_date, voucher_no, account_name, category, sub_category)`); same indexes pattern; NOT YET APPLIED — apply MANUALLY via psql over the SSM tunnel post-merge
+- [x] Terraform — `lambda_etl_supplier_ledger.tf` — Supplier Ledger ETL Lambda (`python3.12`, 512 MB, 300 s); own pip layer at `.lambda_layers/etl_supplier_ledger/`; IAM: VPCNetworking + Logs + SecretsManager(db) + S3 **read-only** (`s3:GetObject` on bucket/* and `s3:ListBucket` on bucket arn — no PutObject, no DeleteObject, no events:PutEvents); env: DATA_BUCKET, DB_SECRET_ARN, RAW_PREFIX, PROCESSED_PREFIX; VPC private subnets + sg_lambda; triggered via EventBridge "Object Created" rule (NOT an S3 notification — avoids the overlapping-prefix conflict with etl_customer_ledger); source: `business-core/lambda/etl_supplier_ledger/`
+- [x] Terraform — `lambda_etl_sales.tf` `aws_s3_bucket_notification.etl_trigger` — added `eventbridge = true` (single additive line); enables S3 to forward all object events to EventBridge so the new `s3_ledger_object_created` rule in `lambda_etl_supplier_ledger.tf` fires; no existing `lambda_function {}` blocks were touched
+- [x] CI — `.github/workflows/terraform.yml` — "Build etl_supplier_ledger layer" pip-install step added to BOTH the plan job AND the apply job; installs into `.lambda_layers/etl_supplier_ledger/python/` with linux-compatible wheels
 
 **Stocks pipeline is complete end-to-end.** Current Stocks UI is built and ready to deploy. Redis cache is populated nightly by redis_updater after `ETLStocksSuccess` event.
 
