@@ -371,6 +371,36 @@ CREATE INDEX idx_customer_ledger_account ON customer_ledger (account_name);
 CREATE INDEX idx_customer_ledger_out_z   ON customer_ledger (out_z) WHERE out_z IS NULL;
 
 
+-- Supplier Ledger — mirror of customer_ledger for supplier (creditor/payable) rows.
+-- Sourced from the same "Ledger All Accounts" file as customer_ledger;
+-- etl_supplier_ledger filters for supplier account rows only.
+-- Natural key: (transaction_date, voucher_no, account_name, category, sub_category).
+-- Uni-temporal milestoning: in_z/out_z track versions of the same natural key.
+--   out_z IS NULL  → current (active) record.
+--   out_z IS NOT NULL → superseded; kept for audit history.
+-- (migration 017)
+CREATE TABLE supplier_ledger (
+    id               SERIAL PRIMARY KEY,
+    transaction_date DATE            NOT NULL,
+    voucher_no       VARCHAR(50)     NOT NULL,
+    account_name     VARCHAR(200)    NOT NULL,
+    category         VARCHAR(10)     NOT NULL,
+    sub_category     VARCHAR(100)    NOT NULL,
+    amount           NUMERIC(15, 4)  NOT NULL,
+    in_z             TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    out_z            TIMESTAMPTZ                 -- NULL = current record
+);
+
+-- Only one active version per natural key at a time.
+CREATE UNIQUE INDEX uix_supplier_ledger_active
+    ON supplier_ledger (transaction_date, voucher_no, account_name, category, sub_category)
+    WHERE out_z IS NULL;
+
+CREATE INDEX idx_supplier_ledger_date    ON supplier_ledger (transaction_date);
+CREATE INDEX idx_supplier_ledger_account ON supplier_ledger (account_name);
+CREATE INDEX idx_supplier_ledger_out_z   ON supplier_ledger (out_z) WHERE out_z IS NULL;
+
+
 -- ============================================================
 -- ETL AUDIT
 -- Tracks every pipeline run for alerting and replay purposes.
