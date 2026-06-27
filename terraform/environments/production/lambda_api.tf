@@ -267,6 +267,12 @@ resource "aws_apigatewayv2_route" "reports_customer_balances_fy" {
   target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
 }
 
+resource "aws_apigatewayv2_route" "reports_supplier_balances_fy" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "GET /reports/supplier-balances-fy"
+  target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
+}
+
 resource "aws_apigatewayv2_route" "notify" {
   api_id    = aws_apigatewayv2_api.main.id
   route_key = "POST /notify"

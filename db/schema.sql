@@ -475,7 +475,8 @@ INSERT INTO app_screens (screen_key, label, sort_order) VALUES
     ('balances',                      'Customer Balances',        60),
     ('reports.appendix_b',            'Appendix B',               70),
     ('reports.ledger_statement',      'Customer Ledger (report)', 80),
-    ('reports.customer_balances_fy',  'Customer Balances (FY)',   90);
+    ('reports.customer_balances_fy',  'Customer Balances (FY)',   90),
+    ('reports.supplier_balances_fy',  'Supplier Balances (FY)',   91);
 
 INSERT INTO app_roles (role_name, is_admin) VALUES ('Administrator', TRUE);
 

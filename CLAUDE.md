@@ -50,7 +50,8 @@ D:\Projects\Iravi\
 │   │       ├── 007_create_purchases.sql
 │   │       ├── 008_create_sales.sql
 │   │       ├── 009_create_rbac.sql
-│   │       └── 010_add_customer_balances_fy_screen.sql
+│   │       ├── 010_add_customer_balances_fy_screen.sql
+│   │       └── 018_add_supplier_balances_fy_screen.sql
 │   ├── design/                               ← git-ignored (local only)
 │   │   ├── stakeholder-presentation.html
 │   │   ├── system-architecture-diagram.html  ← dark SVG, full four-repo diagram (updated 2026-06-25: alerts, SES, mig 013-014, new API routes)
@@ -80,7 +81,7 @@ D:\Projects\Iravi\
 │               ├── lambda_etl_customer_ledger.tf ← Customer Ledger ETL Lambda (S3 trigger via shared notification; upserts customer_ledger with uni-temporal milestoning)
 │               ├── lambda_etl_supplier_ledger.tf ← Supplier Ledger ETL Lambda (EventBridge trigger on raw/Ledger; read-only S3; upserts supplier_ledger; same file as etl_customer_ledger but different rows)
 │               ├── lambda_redis_updater.tf ← Redis Updater + EventBridge trigger
-│               ├── lambda_api.tf       ← API Lambda + API Gateway HTTP API; RBAC /auth/* + /admin/* routes (incl. POST /admin/cache/flush); CORS GET/POST/PUT/DELETE; GET /reports/customer-balances-fy route added (migration 010); alerts CRUD routes added to api_rbac_routes (admin-only)
+│               ├── lambda_api.tf       ← API Lambda + API Gateway HTTP API; RBAC /auth/* + /admin/* routes (incl. POST /admin/cache/flush); CORS GET/POST/PUT/DELETE; GET /reports/customer-balances-fy route added (migration 010); GET /reports/supplier-balances-fy route added (migration 018); alerts CRUD routes added to api_rbac_routes (admin-only)
 │               ├── ses.tf              ← SES domain identity + DKIM for alerts emails (alerts_domain var); outputs verification token + DKIM CNAMEs
 │               ├── lambda_alerts_evaluator.tf ← Alerts Evaluator Lambda + EventBridge daily cron (05:30 UTC = 11:00 IST); reuses api_deps layer; env: DB_SECRET_ARN, ALERTS_SENDER_EMAIL; IAM: GetSecretValue + ses:SendEmail/SendRawEmail
 │               └── amplify.tf          ← Amplify app env vars (VITE_API_BASE_URL only — dashboard creds removed; now BOOTSTRAP_ADMIN_* on the API Lambda); ONE-TIME import required before first apply
@@ -472,6 +473,8 @@ Every run writes a row to `etl_runs`: `run_date`, `started_at`, `completed_at`, 
 - [x] Terraform — `lambda_etl_supplier_ledger.tf` — Supplier Ledger ETL Lambda (`python3.12`, 512 MB, 300 s); own pip layer at `.lambda_layers/etl_supplier_ledger/`; IAM: VPCNetworking + Logs + SecretsManager(db) + S3 **read-only** (`s3:GetObject` on bucket/* and `s3:ListBucket` on bucket arn — no PutObject, no DeleteObject, no events:PutEvents); env: DATA_BUCKET, DB_SECRET_ARN, RAW_PREFIX, PROCESSED_PREFIX; VPC private subnets + sg_lambda; triggered via EventBridge "Object Created" rule (NOT an S3 notification — avoids the overlapping-prefix conflict with etl_customer_ledger); source: `business-core/lambda/etl_supplier_ledger/`
 - [x] Terraform — `lambda_etl_sales.tf` `aws_s3_bucket_notification.etl_trigger` — added `eventbridge = true` (single additive line); enables S3 to forward all object events to EventBridge so the new `s3_ledger_object_created` rule in `lambda_etl_supplier_ledger.tf` fires; no existing `lambda_function {}` blocks were touched
 - [x] CI — `.github/workflows/terraform.yml` — "Build etl_supplier_ledger layer" pip-install step added to BOTH the plan job AND the apply job; installs into `.lambda_layers/etl_supplier_ledger/python/` with linux-compatible wheels
+- [x] Terraform — `lambda_api.tf` updated — `GET /reports/supplier-balances-fy` route added (`aws_apigatewayv2_route.reports_supplier_balances_fy`); same explicit per-path route pattern as `reports_customer_balances_fy`; CORS already covers GET via the existing `cors_configuration` block — no CORS change needed; data report routes are NOT listed in `api_rbac_routes` (only /auth, /admin, /alerts live there) so no change to that local
+- [x] DB migrations — `018_add_supplier_balances_fy_screen.sql` — idempotently inserts `app_screens` seed row `('reports.supplier_balances_fy', 'Supplier Balances (FY)', 91)` with `ON CONFLICT (screen_key) DO NOTHING`; RBAC key for the new Supplier Balances (FY) report screen; mirrors `010_add_customer_balances_fy_screen.sql`; `db/schema.sql` seeded `app_screens` block updated to include sort_order 91 row for consistency; NOT YET APPLIED — apply manually via psql over the SSM tunnel post-merge; admins must then map `reports.supplier_balances_fy` to roles via the Access Control screen in the dashboard
 
 **Stocks pipeline is complete end-to-end.** Current Stocks UI is built and ready to deploy. Redis cache is populated nightly by redis_updater after `ETLStocksSuccess` event.
 

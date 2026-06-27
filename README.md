@@ -171,7 +171,9 @@ IaC/
 │       ├── 013_create_alerts.sql                ← alerts/alert_conditions/alert_recipients/alert_runs
 │       ├── 014_add_alert_schedule_time.sql      ← adds schedule_time TIME DEFAULT '11:00:00' to alerts
 │       ├── 015_add_alert_branch.sql             ← adds nullable branch VARCHAR(100) to alerts (sales/sale_returns scope)
-│       └── 016_create_supplier_accounts.sql     ← creates supplier_accounts (uni-temporal milestoned, natural key: name)
+│       ├── 016_create_supplier_accounts.sql     ← creates supplier_accounts (uni-temporal milestoned, natural key: name)
+│       ├── 017_create_supplier_ledger.sql       ← creates supplier_ledger (same shape as customer_ledger, uni-temporal milestoned)
+│       └── 018_add_supplier_balances_fy_screen.sql ← idempotent app_screens seed for 'reports.supplier_balances_fy' (NOT YET APPLIED)
 └── terraform/
     ├── bootstrap/                  ← Run ONCE first — creates remote state storage
     │   └── main.tf
@@ -201,7 +203,7 @@ IaC/
             ├── lambda_etl_appendix_b_x11_sale_return.tf     ← AppendixRetSales ETL Lambda
             ├── lambda_whatsapp_notifier.tf  ← WhatsApp notifier Lambda (trigger: notifications/pending/*)
             ├── lambda_redis_updater.tf      ← Redis updater + 3 EventBridge rules (stocks/ledger/sales success)
-            ├── lambda_api.tf               ← API Lambda + API Gateway HTTP API + api_deps layer; RBAC /auth/* + /admin/* routes; alerts CRUD routes (admin-only); GET /reports/customer-balances-fy route
+            ├── lambda_api.tf               ← API Lambda + API Gateway HTTP API + api_deps layer; RBAC /auth/* + /admin/* routes; alerts CRUD routes (admin-only); GET /reports/customer-balances-fy route; GET /reports/supplier-balances-fy route (migration 018)
             ├── ses.tf                      ← SES domain identity + DKIM for alerts emails; outputs DNS records
             ├── lambda_alerts_evaluator.tf  ← Alerts Evaluator Lambda + EventBridge rate(15 min); SES IAM covers domain + address-level identities (identity/*)
             └── amplify.tf                  ← Amplify app env vars (ONE-TIME import required — see Step 4a)
@@ -464,6 +466,19 @@ business-core has pushed `lambda/etl_supplier_accounts/`. Apply over the SSM tun
 psql "host=localhost port=5432 dbname=iravi_dashboard user=dashboard_admin password='<password>' sslmode=require" \
      -f db/migrations/016_create_supplier_accounts.sql
 ```
+
+**Migration 018 — `app_screens` seed for Supplier Balances (FY):**
+Idempotently inserts screen key `reports.supplier_balances_fy` (label "Supplier Balances (FY)",
+sort_order 91) into `app_screens` using `ON CONFLICT (screen_key) DO NOTHING`. Mirrors migration
+010 (Customer Balances FY). Apply AFTER `terraform apply` has provisioned the new
+`aws_apigatewayv2_route.reports_supplier_balances_fy` route AND after business-core has deployed
+the `GET /reports/supplier-balances-fy` handler. Apply over the SSM tunnel:
+```bash
+psql "host=localhost port=5432 dbname=iravi_dashboard user=dashboard_admin password='<password>' sslmode=require" \
+     -f db/migrations/018_add_supplier_balances_fy_screen.sql
+```
+After applying, an admin must map the `reports.supplier_balances_fy` screen to the appropriate
+roles via the Access Control screen in the dashboard UI.
 
 ---
 
