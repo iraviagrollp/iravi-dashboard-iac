@@ -169,7 +169,8 @@ IaC/
 │       ├── 012_widen_customer_ledger_amount.sql
 │       ├── 013_create_alerts.sql                ← alerts/alert_conditions/alert_recipients/alert_runs
 │       ├── 014_add_alert_schedule_time.sql      ← adds schedule_time TIME DEFAULT '11:00:00' to alerts
-│       └── 015_add_alert_branch.sql             ← adds nullable branch VARCHAR(100) to alerts (sales/sale_returns scope)
+│       ├── 015_add_alert_branch.sql             ← adds nullable branch VARCHAR(100) to alerts (sales/sale_returns scope)
+│       └── 016_create_supplier_accounts.sql     ← creates supplier_accounts (uni-temporal milestoned, natural key: name)
 └── terraform/
     ├── bootstrap/                  ← Run ONCE first — creates remote state storage
     │   └── main.tf
@@ -187,7 +188,8 @@ IaC/
             ├── monitoring.tf
             ├── bastion.tf
             ├── elasticache.tf
-            ├── lambda_etl_sales.tf          ← ETL sales Lambda + SHARED S3 bucket notification (fans out to all 10 Lambdas by prefix)
+            ├── lambda_etl_sales.tf          ← ETL sales Lambda + SHARED S3 bucket notification (fans out to all 11 Lambdas by prefix)
+            ├── lambda_etl_supplier_accounts.tf  ← Supplier accounts ETL Lambda (trigger: raw/Supplier*.xlsx; own pip layer)
             ├── lambda_etl_stocks.tf         ← Stock balance ETL Lambda
             ├── lambda_etl_customer_ledger.tf← Customer ledger ETL Lambda (trigger: raw/Ledger*.xlsx)
             ├── lambda_etl_customer_accounts.tf ← Customer accounts ETL Lambda (trigger: raw/Customer*.xlsx)
@@ -451,6 +453,17 @@ No IaC Lambda change is required — the branch-filter evaluation logic lives en
 business-core (`alerts_evaluator`), which redeploys on the next `terraform apply`. Migration is
 idempotent (`IF NOT EXISTS`).
 
+**Migration 016 — `supplier_accounts` table:**
+Creates the `supplier_accounts` table for the supplier master pipeline. Uni-temporal milestoned
+(BIGSERIAL PK, natural key `name`, `in_z`/`out_z`). Partial unique index
+`uix_supplier_accounts_active` enforces one active row per supplier name (`WHERE out_z IS NULL`).
+Apply AFTER `terraform apply` has provisioned `lambda_etl_supplier_accounts` and AFTER
+business-core has pushed `lambda/etl_supplier_accounts/`. Apply over the SSM tunnel:
+```bash
+psql "host=localhost port=5432 dbname=iravi_dashboard user=dashboard_admin password='<password>' sslmode=require" \
+     -f db/migrations/016_create_supplier_accounts.sql
+```
+
 ---
 
 ## SES Setup (alerts email)
@@ -578,3 +591,6 @@ Parked decisions — do not act on these without explicit discussion. Revisit as
 
 **`terraform validate` fails with missing alerts_evaluator source**
 → The Lambda source directory `../business-core/lambda/alerts_evaluator/` does not exist yet. Push the business-core `alerts_evaluator` Lambda source before opening a PR against this IaC repo (Terraform reads the source path at validate time, not just at apply time).
+
+**`terraform validate` fails with missing etl_supplier_accounts source**
+→ The Lambda source directory `../business-core/lambda/etl_supplier_accounts/` does not exist yet. business-core must be pushed first — Terraform evaluates `archive_file` source paths at validate time.
