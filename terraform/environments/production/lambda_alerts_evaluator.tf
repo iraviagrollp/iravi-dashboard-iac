@@ -4,13 +4,35 @@
 # self-selects which alerts are due for the current 15-minute window.
 # Reads active alert rules from the alerts/* tables, queries
 # snapshot_customer_balances for matching rows, and emails results via SES.
-# Layer: reuses api_deps (psycopg2-binary + redis-py) — no new pip layer needed.
+# Layers:
+#   - api_deps    — psycopg2-binary + redis-py (shared with api + redis_updater)
+#   - alerts_evaluator_deps — reportlab (PDF generation for Monthly Sales emails)
+#     Built by "Build alerts_evaluator_deps layer" CI step.
 # Source: ../business-core/lambda/alerts_evaluator/
 
 locals {
   alerts_evaluator_name    = "${var.project}-alerts-evaluator"
   alerts_evaluator_timeout = 300 # 5 min — may process multiple alerts
   alerts_evaluator_memory  = 256
+}
+
+# ── Dependency layer (reportlab — PDF generation) ─────────────────────────────
+# Built by the "Build alerts_evaluator_deps layer" step in the GitHub Actions
+# workflow. reportlab is used to render the Monthly Sales PDF attached to alert
+# emails. psycopg2 is already in the shared api_deps layer; this layer is
+# alerts_evaluator-specific and should NOT be merged into api_deps.
+
+data "archive_file" "alerts_evaluator_deps_layer" {
+  type        = "zip"
+  source_dir  = "${path.root}/.lambda_layers/alerts_evaluator_deps"
+  output_path = "${path.root}/.lambda_build/alerts_evaluator_deps_layer.zip"
+}
+
+resource "aws_lambda_layer_version" "alerts_evaluator_deps" {
+  filename            = data.archive_file.alerts_evaluator_deps_layer.output_path
+  layer_name          = "${var.project}-alerts-evaluator-deps"
+  source_code_hash    = data.archive_file.alerts_evaluator_deps_layer.output_base64sha256
+  compatible_runtimes = ["python3.12"]
 }
 
 # ── Packaging ─────────────────────────────────────────────────────────────────
@@ -105,9 +127,12 @@ resource "aws_lambda_function" "alerts_evaluator" {
   timeout          = local.alerts_evaluator_timeout
   memory_size      = local.alerts_evaluator_memory
 
-  # Reuse api_deps layer — provides psycopg2-binary (DB access).
-  # No additional layer is required for this Lambda.
-  layers = [aws_lambda_layer_version.api_deps.arn]
+  # api_deps     — psycopg2-binary for DB access (shared layer).
+  # alerts_evaluator_deps — reportlab for PDF generation (this Lambda only).
+  layers = [
+    aws_lambda_layer_version.api_deps.arn,
+    aws_lambda_layer_version.alerts_evaluator_deps.arn,
+  ]
 
   vpc_config {
     subnet_ids         = aws_subnet.private[*].id
