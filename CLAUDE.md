@@ -84,7 +84,7 @@ D:\Projects\Iravi\
 │               ├── lambda_redis_updater.tf ← Redis Updater + EventBridge trigger
 │               ├── lambda_api.tf       ← API Lambda + API Gateway HTTP API; RBAC /auth/* + /admin/* routes (incl. POST /admin/cache/flush); CORS GET/POST/PUT/DELETE; GET /reports/customer-balances-fy route added (migration 010); GET /reports/supplier-balances-fy route added (migration 018); GET /reports/monthly-sales route added (migration 019); alerts CRUD routes added to api_rbac_routes (admin-only)
 │               ├── ses.tf              ← SES domain identity + DKIM for alerts emails (alerts_domain var); outputs verification token + DKIM CNAMEs
-│               ├── lambda_alerts_evaluator.tf ← Alerts Evaluator Lambda + EventBridge daily cron (05:30 UTC = 11:00 IST); reuses api_deps layer; env: DB_SECRET_ARN, ALERTS_SENDER_EMAIL; IAM: GetSecretValue + ses:SendEmail/SendRawEmail
+│               ├── lambda_alerts_evaluator.tf ← Alerts Evaluator Lambda + EventBridge rate(15 min); layers: api_deps (psycopg2) + alerts_evaluator_deps (reportlab — PDF for Monthly Sales email); env: DB_SECRET_ARN, ALERTS_SENDER_EMAIL; IAM: GetSecretValue + ses:SendEmail/SendRawEmail
 │               └── amplify.tf          ← Amplify app env vars (VITE_API_BASE_URL only — dashboard creds removed; now BOOTSTRAP_ADMIN_* on the API Lambda); ONE-TIME import required before first apply
 ├── business-core\                      ← separate repo (processing logic)
 │   ├── CLAUDE.md
@@ -312,6 +312,7 @@ Do NOT use `null_resource` + `local-exec` provisioner to run pip install inside 
 - `etl_customer_ledger` → `.lambda_layers/etl_customer_ledger/python/`
 - `etl_supplier_accounts` → `.lambda_layers/etl_supplier_accounts/python/`
 - `etl_supplier_ledger` → `.lambda_layers/etl_supplier_ledger/python/`
+- `alerts_evaluator_deps` → `.lambda_layers/alerts_evaluator_deps/python/` — `reportlab` (PDF generation for Monthly Sales email attachments); **alerts_evaluator-specific**, not merged into `api_deps`
 
 The step creates the directory with Linux-compatible wheels; Terraform's `archive_file` zips it normally. When adding a new Lambda with a layer, add the corresponding pip install step to both plan and apply jobs in `.github/workflows/terraform.yml`.
 
@@ -478,6 +479,8 @@ Every run writes a row to `etl_runs`: `run_date`, `started_at`, `completed_at`, 
 - [x] DB migrations — `018_add_supplier_balances_fy_screen.sql` — idempotently inserts `app_screens` seed row `('reports.supplier_balances_fy', 'Supplier Balances (FY)', 91)` with `ON CONFLICT (screen_key) DO NOTHING`; RBAC key for the new Supplier Balances (FY) report screen; mirrors `010_add_customer_balances_fy_screen.sql`; `db/schema.sql` seeded `app_screens` block updated to include sort_order 91 row for consistency; NOT YET APPLIED — apply manually via psql over the SSM tunnel post-merge; admins must then map `reports.supplier_balances_fy` to roles via the Access Control screen in the dashboard
 - [x] Terraform — `lambda_api.tf` updated — `GET /reports/monthly-sales` route added (`aws_apigatewayv2_route.reports_monthly_sales`); same explicit per-path route pattern as `reports_customer_balances_fy` and `reports_supplier_balances_fy`; CORS already covers GET via the existing `cors_configuration` block — no CORS change needed; public data route — NOT listed in `api_rbac_routes` (only /auth, /admin, /alerts live there)
 - [x] DB migrations — `019_add_monthly_sales_screen.sql` — idempotently inserts `app_screens` seed row `('reports.monthly_sales', 'Monthly Sales', 92)` with `ON CONFLICT (screen_key) DO NOTHING`; RBAC key for the new Monthly Sales report screen; mirrors `010` and `018`; `db/schema.sql` seeded `app_screens` block updated to include sort_order 92 row for consistency; NOT YET APPLIED — apply manually via psql over the SSM tunnel post-merge; admins must then map `reports.monthly_sales` to roles via the Access Control screen in the dashboard
+- [x] Terraform — `lambda_alerts_evaluator.tf` updated — added `aws_lambda_layer_version.alerts_evaluator_deps` (`${var.project}-alerts-evaluator-deps`) built from `.lambda_layers/alerts_evaluator_deps/python/` via `archive_file` + `filemd5` pattern; `alerts_evaluator` Lambda's `layers` now lists BOTH `api_deps.arn` (psycopg2 — retained) AND `alerts_evaluator_deps.arn` (reportlab — for Monthly Sales PDF email attachments); no IAM change (ses:SendRawEmail already granted)
+- [x] CI — `.github/workflows/terraform.yml` — "Build alerts_evaluator_deps layer" pip-install step added to BOTH the plan job AND the apply job; installs `reportlab` into `.lambda_layers/alerts_evaluator_deps/python/` with `--platform manylinux2014_x86_64 --only-binary=:all:` Linux-compatible wheels; business-core must be pushed first (Terraform evaluates `archive_file` source path at validate time)
 
 **Stocks pipeline is complete end-to-end.** Current Stocks UI is built and ready to deploy. Redis cache is populated nightly by redis_updater after `ETLStocksSuccess` event.
 

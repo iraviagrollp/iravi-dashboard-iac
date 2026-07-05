@@ -17,7 +17,7 @@ Region: `ap-south-1` (Mumbai).
 | Monitoring | SNS alert topic + 5 CloudWatch alarms (CPU, storage, connections, memory, write latency) |
 | Bastion Host | `t3.micro` EC2 in public subnet — SSM Session Manager port forwarding to RDS (no SSH, no key pair) |
 | SES | Domain identity + DKIM for `iraviagrolife.com`; configuration set `iravi-dashboard-alerts`; used by alerts_evaluator Lambda; DNS records output by `terraform output ses_dkim_tokens` |
-| Alerts Evaluator Lambda | `iravi-dashboard-alerts-evaluator` — Python 3.12, 256 MB, 300 s, reuses `api_deps` layer; EventBridge `rate(15 minutes)` — send time is per-alert (`alerts.schedule_time`, IST); Lambda self-selects which alerts are due each invocation (was daily `cron(30 5 * * ? *)`) |
+| Alerts Evaluator Lambda | `iravi-dashboard-alerts-evaluator` — Python 3.12, 256 MB, 300 s; layers: `api_deps` (psycopg2, shared) + `alerts_evaluator_deps` (reportlab — Monthly Sales PDF attachments); EventBridge `rate(15 minutes)` — send time is per-alert (`alerts.schedule_time`, IST); Lambda self-selects which alerts are due each invocation |
 | Alerts API routes | 6 admin-only routes in `api_rbac_routes`: `GET/POST /alerts`, `PUT/DELETE /alerts/{id}`, `GET /alerts/fields`, `POST /alerts/{id}/test` |
 | Supplier Ledger Lambda | `iravi-dashboard-etl-supplier-ledger` — Python 3.12, 512 MB, 300 s, own layer (openpyxl/psycopg2); triggered by EventBridge "Object Created" rule on `raw/Ledger` prefix; read-only S3 IAM (GetObject + ListBucket, no Put/Delete); upserts `supplier_ledger` table with uni-temporal milestoning; `eventbridge = true` added to the shared S3 bucket notification to enable this flow |
 | CI/CD | GitHub Actions — fmt + validate on PR (Stage 1); plan + apply coming after AWS account setup |
@@ -206,7 +206,7 @@ IaC/
             ├── lambda_redis_updater.tf      ← Redis updater + 3 EventBridge rules (stocks/ledger/sales success)
             ├── lambda_api.tf               ← API Lambda + API Gateway HTTP API + api_deps layer; RBAC /auth/* + /admin/* routes; alerts CRUD routes (admin-only); GET /reports/customer-balances-fy route; GET /reports/supplier-balances-fy route (migration 018); GET /reports/monthly-sales route (migration 019)
             ├── ses.tf                      ← SES domain identity + DKIM for alerts emails; outputs DNS records
-            ├── lambda_alerts_evaluator.tf  ← Alerts Evaluator Lambda + EventBridge rate(15 min); SES IAM covers domain + address-level identities (identity/*)
+            ├── lambda_alerts_evaluator.tf  ← Alerts Evaluator Lambda + EventBridge rate(15 min); layers: api_deps + alerts_evaluator_deps (reportlab); SES IAM covers domain + address-level identities (identity/*)
             └── amplify.tf                  ← Amplify app env vars (ONE-TIME import required — see Step 4a)
 ```
 
