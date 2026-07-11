@@ -207,6 +207,12 @@ resource "aws_apigatewayv2_route" "supplier_ledger" {
   target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
 }
 
+resource "aws_apigatewayv2_route" "supplier_ledger_statement" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "GET /supplier-ledger/statement"
+  target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
+}
+
 resource "aws_apigatewayv2_route" "suppliers_details" {
   api_id    = aws_apigatewayv2_api.main.id
   route_key = "GET /suppliers/details"
