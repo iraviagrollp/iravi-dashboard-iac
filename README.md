@@ -109,7 +109,7 @@ Go to Repo → Settings → Secrets and variables → Actions → New repository
 
 **Step 6 — Uncomment Stage 3 once Stage 2 is confirmed**
 - Remove the `#` comment block around the `apply` job
-- First apply provisions all ~27 resources (takes 8–12 minutes)
+- First apply provisions the full stack (~90+ resources — see the "Expected resource count" note below; run `terraform plan` for the exact number); takes 8–12 minutes
 
 ---
 
@@ -173,8 +173,8 @@ IaC/
 │       ├── 015_add_alert_branch.sql             ← adds nullable branch VARCHAR(100) to alerts (sales/sale_returns scope)
 │       ├── 016_create_supplier_accounts.sql     ← creates supplier_accounts (uni-temporal milestoned, natural key: name)
 │       ├── 017_create_supplier_ledger.sql       ← creates supplier_ledger (same shape as customer_ledger, uni-temporal milestoned)
-│       ├── 018_add_supplier_balances_fy_screen.sql ← idempotent app_screens seed for 'reports.supplier_balances_fy' (NOT YET APPLIED)
-│       └── 019_add_monthly_sales_screen.sql        ← idempotent app_screens seed for 'reports.monthly_sales' (NOT YET APPLIED)
+│       ├── 018_add_supplier_balances_fy_screen.sql ← idempotent app_screens seed for 'reports.supplier_balances_fy' (applied)
+│       └── 019_add_monthly_sales_screen.sql        ← idempotent app_screens seed for 'reports.monthly_sales' (applied)
 └── terraform/
     ├── bootstrap/                  ← Run ONCE first — creates remote state storage
     │   └── main.tf
@@ -192,8 +192,10 @@ IaC/
             ├── monitoring.tf
             ├── bastion.tf
             ├── elasticache.tf
-            ├── lambda_etl_sales.tf          ← ETL sales Lambda + SHARED S3 bucket notification (fans out to all 11 Lambdas by prefix)
+            ├── s3_data.tf                   ← S3 data bucket (raw/ processed/ notifications/)
+            ├── lambda_etl_sales.tf          ← ETL sales Lambda + SHARED S3 bucket notification (fans out to all 11 S3-triggered Lambdas by prefix; eventbridge = true)
             ├── lambda_etl_supplier_accounts.tf  ← Supplier accounts ETL Lambda (trigger: raw/Supplier*.xlsx; own pip layer)
+            ├── lambda_etl_supplier_ledger.tf ← Supplier ledger ETL Lambda (EventBridge on raw/Ledger; read-only S3)
             ├── lambda_etl_stocks.tf         ← Stock balance ETL Lambda
             ├── lambda_etl_customer_ledger.tf← Customer ledger ETL Lambda (trigger: raw/Ledger*.xlsx)
             ├── lambda_etl_customer_accounts.tf ← Customer accounts ETL Lambda (trigger: raw/Customer*.xlsx)

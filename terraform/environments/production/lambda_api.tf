@@ -312,6 +312,11 @@ locals {
     "DELETE /alerts/{id}",
     "GET /alerts/fields",
     "POST /alerts/{id}/test",
+    # ── Monthly Sale Targets — admin-only config CRUD ────────────────────────
+    # Enforced in the Lambda handler: valid JWT + is_admin required.
+    # CORS already covers GET/POST via the cors_configuration block.
+    "GET /config/monthly-targets",
+    "POST /config/monthly-targets",
   ]
 }
 
