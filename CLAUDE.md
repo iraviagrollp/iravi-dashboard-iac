@@ -51,8 +51,15 @@ D:\Projects\Iravi\
 │   │       ├── 008_create_sales.sql
 │   │       ├── 009_create_rbac.sql
 │   │       ├── 010_add_customer_balances_fy_screen.sql
+│   │       ├── 011_add_customer_code_to_customer_details.sql
+│   │       ├── 012_widen_customer_ledger_amount.sql
+│   │       ├── 013_create_alerts.sql
+│   │       ├── 014_add_alert_schedule_time.sql
+│   │       ├── 015_add_alert_branch.sql
+│   │       ├── 016_create_supplier_accounts.sql
+│   │       ├── 017_create_supplier_ledger.sql
 │   │       ├── 018_add_supplier_balances_fy_screen.sql
-│       └── 019_add_monthly_sales_screen.sql
+│   │       └── 019_add_monthly_sales_screen.sql
 │   ├── design/                               ← git-ignored (local only)
 │   │   ├── stakeholder-presentation.html
 │   │   ├── system-architecture-diagram.html  ← dark SVG, full four-repo diagram (updated 2026-06-25: alerts, SES, mig 013-014, new API routes)
@@ -73,14 +80,24 @@ D:\Projects\Iravi\
 │               ├── security_groups.tf  ← sg-lambda, sg-rds, sg-elasticache, sg-bastion
 │               ├── vpc_endpoints.tf    ← S3 gateway + Secrets Manager interface
 │               ├── rds.tf              ← RDS PostgreSQL 16
+│               ├── elasticache.tf      ← ElastiCache Redis 7 (cache.t3.micro, private subnets)
+│               ├── s3_data.tf          ← S3 data bucket (raw/ processed/ notifications/)
 │               ├── secrets.tf          ← Secrets Manager (DB credentials + JWT signing key iravi/dashboard/jwt)
 │               ├── monitoring.tf       ← SNS + 5 CloudWatch alarms
 │               ├── schema_runner.tf    ← removed (apply schema via SSM + psql)
 │               ├── bastion.tf          ← Bastion EC2 — SSM Session Manager, no SSH
-│               ├── lambda_etl_sales.tf ← ETL Lambda + shared S3 bucket notification (fans out to etl_sales on prefix "raw/RGF Sales Book", etl_stocks on "raw/Current", etl_customer_ledger on "raw/Ledger"; `eventbridge = true` added — S3 also forwards all events to EventBridge for etl_supplier_ledger)
-│               ├── lambda_etl_stocks.tf ← Stock balance ETL Lambda (S3 trigger via shared notification in lambda_etl_sales.tf)
-│               ├── lambda_etl_customer_ledger.tf ← Customer Ledger ETL Lambda (S3 trigger via shared notification; upserts customer_ledger with uni-temporal milestoning)
-│               ├── lambda_etl_supplier_ledger.tf ← Supplier Ledger ETL Lambda (EventBridge trigger on raw/Ledger; read-only S3; upserts supplier_ledger; same file as etl_customer_ledger but different rows)
+│               ├── lambda_etl_sales.tf ← ETL Lambda + shared S3 bucket notification (fans out to ALL S3-triggered ETL Lambdas by non-overlapping raw/ prefix; `eventbridge = true` — S3 also forwards events to EventBridge for etl_supplier_ledger)
+│               ├── lambda_etl_stocks.tf ← Stock balance ETL Lambda (raw/Current)
+│               ├── lambda_etl_customer_ledger.tf   ← Customer Ledger ETL Lambda (raw/Ledger)
+│               ├── lambda_etl_customer_accounts.tf ← Customer Accounts ETL Lambda (raw/Customer)
+│               ├── lambda_etl_appendix_b_x11.tf                 ← Barcodes Masters (raw/Barcodes)
+│               ├── lambda_etl_appendix_b_x11_purchase.tf        ← AppendixPurchase
+│               ├── lambda_etl_appendix_b_x11_purchase_return.tf ← AppendixPurReturn
+│               ├── lambda_etl_appendix_b_x11_sale.tf            ← AppendixSale
+│               ├── lambda_etl_appendix_b_x11_sale_return.tf     ← AppendixRetSales
+│               ├── lambda_etl_supplier_accounts.tf ← Supplier Accounts ETL Lambda (raw/Supplier)
+│               ├── lambda_etl_supplier_ledger.tf ← Supplier Ledger ETL Lambda (EventBridge trigger on raw/Ledger; read-only S3; upserts supplier_ledger; same source file as etl_customer_ledger but different rows)
+│               ├── lambda_whatsapp_notifier.tf ← WhatsApp notifier Lambda (notifications/pending/*.html)
 │               ├── lambda_redis_updater.tf ← Redis Updater + EventBridge trigger
 │               ├── lambda_api.tf       ← API Lambda + API Gateway HTTP API; RBAC /auth/* + /admin/* routes (incl. POST /admin/cache/flush); CORS GET/POST/PUT/DELETE; GET /reports/customer-balances-fy route added (migration 010); GET /reports/supplier-balances-fy route added (migration 018); GET /reports/monthly-sales route added (migration 019); alerts CRUD routes added to api_rbac_routes (admin-only)
 │               ├── ses.tf              ← SES domain identity + DKIM for alerts emails (alerts_domain var); outputs verification token + DKIM CNAMEs
@@ -102,7 +119,7 @@ D:\Projects\Iravi\
 
 ```
 FUSIL PRO (External)
-    ↓ exports 8 Excel files to local server folder nightly
+    ↓ File Sync Agent exports 7 Excel reports (+ Appendix-B/Ledger/Supplier/Barcodes files) nightly
 Local Export Folder (FUSIL PRO server)
     ↓ File Sync Agent (Python + Windows Task Scheduler)
 S3 Landing Zone  s3://iravi-dashboard-tfstate-<acct>/
@@ -114,10 +131,10 @@ Data Extractor & Massager (AWS Lambda)
 Dashboard DB (RDS PostgreSQL 16 — db.t3.small — ap-south-1)
     ↓ on ETL success
 Redis Updater (AWS Lambda)
-    ↓ 7-day TTL
+    ↓ per-key TTL (stocks/ledger-range 24h; API cache-aside keys 15m–1h)
 ElastiCache Redis
     ↑ cache-aside (miss → Dashboard DB → populate Redis)
-API Layer (API Gateway + Lambda + Cognito JWT)
+API Layer (API Gateway + Lambda + app-level JWT/RBAC; Cognito is future phase 3)
     ↑
 Dashboard UI (React + AWS Amplify)
     ↑
@@ -132,19 +149,20 @@ Users (Admin / Finance / Operations / Viewer)
 
 ## Source Files (from FUSIL PRO)
 
-FUSIL PRO exports **8 Excel files** to a local server folder each evening.
-The File Sync Agent watches the folder and uploads to S3 once all 8 are present,
-then generates `manifest.json` as the final step (pipeline trigger).
+The File Sync Agent drives FUSIL PRO to export **7 Excel reports** (see `FileSyncAgent/src/fusil/reports.py`,
+the authoritative list), uploads them to S3, then writes `manifest.json` as the final step (pipeline trigger).
+There is **no Expenses report** — the original spec was wrong. Additional source files consumed by the ETL
+Lambdas (Appendix-B purchase/sale, `Ledger All Accounts`, `Supplier Accounts`, `Barcodes Masters`, product
+rates) are exported separately and land under their own `raw/` prefixes.
 
-### File naming pattern
+### File naming pattern (7 agent-exported reports)
 | File | Pattern |
 |---|---|
 | Sale | `RGF Sales Book{DD-M-YYYY}({H.MM.SS}).xlsx` |
 | Sale Returns | `RGF Sales Return Book{DD-M-YYYY}({H.MM.SS}).xlsx` |
 | Purchase | `RGF Purchase Book{DD-M-YYYY}({H.MM.SS}).xlsx` |
-| Purchase Returns | `RGF Purchase Return Report{DD-M-YYYY}({H.MM.SS}).xlsx` |
-| Expenses | `RGF Expenses*{DD-M-YYYY}({H.MM.SS}).xlsx` (file not yet seen — assumed similar) |
-| Stocks | `Stocks.xlsx` (no date in filename) |
+| Purchase Returns | `RGF Purchase Return Book{DD-M-YYYY}({H.MM.SS}).xlsx` |
+| Stocks | `RGF Current Stock Balances{DD-M-YYYY}({H.MM.SS}).xlsx` |
 | Customer Accounts | `Customer Accounts Export File{DD-M-YYYY}({H.MM.SS}).xlsx` |
 | Customer Balances | `Customer Balances{DD-M-YYYY}({H.MM.SS}).xlsx` |
 
@@ -389,25 +407,29 @@ Every run writes a row to `etl_runs`: `run_date`, `started_at`, `completed_at`, 
 
 ---
 
-## RBAC Roles (AWS Cognito)
+## RBAC (DB-backed, phase 1 — implemented)
 
-| Role | Access |
-|---|---|
-| Admin | All views + user management + ETL run history |
-| Finance | All views including Finance Overview (P&L) |
-| Operations | Sales, Purchases, Inventory, Expenses, Customer list (no balances) |
-| Viewer | Executive Summary only — read-only |
+RBAC is **not** Cognito-based (Cognito on API Gateway remains future phase 3). Roles and their screen
+access live in Postgres and are managed via the `/admin/*` API:
+
+- Tables (migration `009_create_rbac.sql`): `app_users`, `app_roles`, `app_role_screens`, `app_screens`
+  (later migrations `010`/`018`/`019` seed the `reports.*` screen keys).
+- Auth: `business-core/lambda/api/auth.py` — stdlib PBKDF2 hashing + HS256 JWT; signing key in Secrets
+  Manager `iravi/dashboard/jwt`.
+- Roles are **user-defined** (created in the Access Control UI), not a fixed Admin/Finance/Operations/Viewer
+  set. Each role maps to a set of screen keys (`ui/src/screens.ts`).
+- Enforcement: `POST /auth/login` + `/admin/*` are server-side enforced; read-only data endpoints are
+  UI-only gated for now (backlog: per-route authorization).
 
 ---
 
-## Dashboard Views (to be built)
+## Dashboard Views (built — see `ui/`)
 
-1. **Executive Summary** — KPI cards: sales, gross margin, net cash, outstanding receivables, stock value
-2. **Sales Analytics** — trends, net sales (gross − returns), by branch, top customers
-3. **Expense Tracker** — by category, trend, vs revenue ratio
-4. **Purchases & Inventory** — net purchases, stock levels by product/packing, AP vs TS split, margin view
-5. **Customer Management** — balances, AR aging (0-30 / 31-60 / 61-90 / 90+ days)
-6. **Finance Overview** — P&L summary, MoM comparison, cash flow (Finance role only)
+All main pages are implemented in the `ui/` project (default landing is **Overview**): Overview
+(A-vs-B comparison + KPI tiles + customer ticker), Sales, Purchases, Current Stocks, Customer Ledger,
+Customer Balances, Reports (Appendix-B, Ledger Statement, Monthly Sales, Customer/Supplier Balances FY),
+Alerts (admin), and Admin → Access Control (RBAC). The original role-fixed view plan (Executive Summary /
+Expense Tracker / Finance Overview) was superseded; Expenses remains a phase 3+ item.
 
 ---
 
@@ -433,7 +455,7 @@ Every run writes a row to `etl_runs`: `run_date`, `started_at`, `completed_at`, 
 - [x] File Sync Agent — deployed and running on FUSIL PRO server · `D:\Projects\Iravi\FileSyncAgent\`
 - [x] business-core project created — `D:\Projects\Iravi\business-core\` with lambda scaffolds for etl_sales, redis_updater, api
 - [x] Terraform — Lambda resources (`lambda_etl_sales.tf`, `lambda_redis_updater.tf`, `lambda_api.tf`) with IAM, triggers, API Gateway
-- [x] Terraform — `lambda_etl_stocks.tf` — stock balance ETL Lambda; `lambda_etl_sales.tf` bucket notification fans out to both Lambdas using non-overlapping suffixes (`).xlsx` for dated exports → etl_sales; `Stocks.xlsx` → etl_stocks). Phase 2 note: when additional ETL Lambdas are added for purchases/returns/expenses they will share the `).xlsx` suffix — switch to EventBridge or a dispatcher Lambda at that point.
+- [x] Terraform — `lambda_etl_stocks.tf` — stock balance ETL Lambda; `lambda_etl_sales.tf` bucket notification fans out to both Lambdas using non-overlapping suffixes (`).xlsx` for dated exports → etl_sales; `Stocks.xlsx` → etl_stocks). Phase 2 note (superseded): the fan-out is now **prefix-based** (each Lambda filters on a distinct `raw/<Prefix>`), all wired through the single shared `aws_s3_bucket_notification` in `lambda_etl_sales.tf`, with `eventbridge = true` added so `etl_supplier_ledger` can trigger off `raw/Ledger` via an EventBridge rule.
 - [x] Terraform — `elasticache.tf` — ElastiCache Redis 7, `cache.t3.micro`, private subnets, `sg_elasticache` (already existed)
 - [x] Terraform — `lambda_etl_stocks.tf` updated — added `EVENT_BUS_NAME` env var + `events:PutEvents` IAM permission
 - [x] Terraform — `lambda_redis_updater.tf` updated — added `REDIS_HOST` env var; added `ETLStocksSuccess` EventBridge rule + target + permission
@@ -458,27 +480,27 @@ Every run writes a row to `etl_runs`: `run_date`, `started_at`, `completed_at`, 
 - [x] RBAC phase 1 — DB migration `009_create_rbac.sql` (app_roles/app_screens/app_role_screens/app_users); JWT signing key secret `iravi/dashboard/jwt` (`secrets.tf`); API Lambda env `JWT_SECRET_ARN` + `BOOTSTRAP_ADMIN_*`, IAM for the jwt secret, `/auth/*` + `/admin/*` routes, CORS PUT/DELETE (`lambda_api.tf`); dashboard creds removed from Amplify bundle (`amplify.tf`). Login + `/admin/*` enforced server-side; data endpoints are UI-only gated (full enforcement = backlog)
 - [x] Admin cache flush — `POST /admin/cache/flush` route added to `api_rbac_routes` (`lambda_api.tf`); API Lambda handler deletes all `iravi:*` Redis keys (namespace-scoped, not FLUSHDB) so the cache rehydrates from RDS on next request; UI exposes it as an admin-only button left of the dark-mode toggle in the navbar (`iravi-ui` Layout). Requires IaC apply for the route + Lambda redeploy to take effect
 - [x] Terraform — `lambda_api.tf` updated — `GET /reports/customer-balances-fy` route added (`aws_apigatewayv2_route.reports_customer_balances_fy`); same per-path explicit route pattern as all other data routes; CORS already covers GET via the existing `cors_configuration` block — no CORS change needed
-- [x] DB migrations — `010_add_customer_balances_fy_screen.sql` — idempotently inserts `app_screens` seed row `('reports.customer_balances_fy', 'Customer Balances (FY)', 90)` with `ON CONFLICT (screen_key) DO NOTHING`; RBAC key for the new Customer Balances (FY) report screen; NOT YET APPLIED — apply manually via psql over the SSM tunnel post-merge
-- [x] DB migrations — `011_add_customer_code_to_customer_details.sql` — adds `customer_code VARCHAR(20)` (nullable) to `customer_details` plus `idx_customer_details_code` index; sourced from the "General" sheet of the Customer Accounts Export File by `etl_customer_accounts`; NOT YET APPLIED — MUST be applied manually via psql over the SSM tunnel BEFORE the updated `etl_customer_accounts` Lambda runs
-- [x] DB migrations — `012_widen_customer_ledger_amount.sql` — widens `customer_ledger.amount` from `NUMERIC(15,2)` to `NUMERIC(15,4)`; the "Ledger All Accounts" export contains GST component lines at 3 decimal places (e.g. 6498.675) — storing at 2dp rounded them and produced a 1-paise drift when components were summed per voucher; schema.sql updated to match; NOT YET APPLIED — apply manually via psql over the SSM tunnel, then RE-INGEST the ledger file(s) (existing rows were already truncated and cannot be recovered by the ALTER alone), then flush the Redis cache
-- [x] DB migrations — `013_create_alerts.sql` — creates `alerts`, `alert_conditions`, `alert_recipients`, `alert_runs` tables with check constraints; all relational (no JSONB); schema.sql updated to match; NOT YET APPLIED — apply manually via psql over the SSM tunnel post-merge
+- [x] DB migrations — `010_add_customer_balances_fy_screen.sql` — idempotently inserts `app_screens` seed row `('reports.customer_balances_fy', 'Customer Balances (FY)', 90)` with `ON CONFLICT (screen_key) DO NOTHING`; RBAC key for the new Customer Balances (FY) report screen; APPLIED to AWS (2026-07-11) via psql over the SSM tunnel
+- [x] DB migrations — `011_add_customer_code_to_customer_details.sql` — adds `customer_code VARCHAR(20)` (nullable) to `customer_details` plus `idx_customer_details_code` index; sourced from the "General" sheet of the Customer Accounts Export File by `etl_customer_accounts`; APPLIED to AWS (2026-07-11) via psql over the SSM tunnel (before the updated `etl_customer_accounts` Lambda ran)
+- [x] DB migrations — `012_widen_customer_ledger_amount.sql` — widens `customer_ledger.amount` from `NUMERIC(15,2)` to `NUMERIC(15,4)`; the "Ledger All Accounts" export contains GST component lines at 3 decimal places (e.g. 6498.675) — storing at 2dp rounded them and produced a 1-paise drift when components were summed per voucher; schema.sql updated to match; APPLIED to AWS (2026-07-11) via psql over the SSM tunnel, followed by a RE-INGEST of the ledger file(s) (rows stored before the widen were truncated and were recovered by re-ingest) and a Redis cache flush
+- [x] DB migrations — `013_create_alerts.sql` — creates `alerts`, `alert_conditions`, `alert_recipients`, `alert_runs` tables with check constraints; all relational (no JSONB); schema.sql updated to match; APPLIED to AWS (2026-07-11) via psql over the SSM tunnel
 - [x] Terraform — `ses.tf` — SES domain identity for `var.alerts_domain` (default `iraviagrolife.com`) + DKIM configuration; outputs `ses_domain_verification_token`, `ses_dkim_tokens` (3 CNAMEs), `ses_identity_arn`; `aws_ses_configuration_set` named `${project}-alerts`; two manual steps required: (a) add DNS records, (b) request SES production access
 - [x] Terraform — `lambda_alerts_evaluator.tf` — Alerts Evaluator Lambda (`python3.12`, handler `handler.lambda_handler`, 256 MB, 300 s timeout); reuses `api_deps` layer (psycopg2); VPC private subnets + sg_lambda; env: `DB_SECRET_ARN`, `ALERTS_SENDER_EMAIL`; IAM: GetSecretValue on DB secret + ses:SendEmail/SendRawEmail; EventBridge schedule changed from daily `cron(30 5 * * ? *)` (11:00 IST) to `rate(15 minutes)` — send time is now per-alert (`alerts.schedule_time`); business-core Lambda self-selects which alerts are due each invocation. **SES IAM scoping fix (2026-06-25):** `Resource` in the SES statement was broadened from the domain identity ARN alone to a two-element list — `[aws_ses_domain_identity.alerts.arn, "arn:aws:ses:<region>:<account>:identity/*"]` — because SES authorises `SendEmail` against the *sender* identity ARN, and an address-level verified identity (e.g. `kranthi@iraviagrolife.com`) resolves to `identity/kranthi@iraviagrolife.com`, not `identity/iraviagrolife.com`; the domain-only scope caused `AccessDenied`.
-- [x] DB migrations — `014_add_alert_schedule_time.sql` — adds `schedule_time TIME NOT NULL DEFAULT '11:00:00'` to `alerts` table; default preserves legacy 11:00 IST behaviour for existing rows; schema.sql updated to match; NOT YET APPLIED — apply manually via psql over the SSM tunnel post-merge
+- [x] DB migrations — `014_add_alert_schedule_time.sql` — adds `schedule_time TIME NOT NULL DEFAULT '11:00:00'` to `alerts` table; default preserves legacy 11:00 IST behaviour for existing rows; schema.sql updated to match; APPLIED to AWS (2026-07-11) via psql over the SSM tunnel
 - [x] Terraform — `lambda_api.tf` alerts routes — `GET /alerts`, `POST /alerts`, `PUT /alerts/{id}`, `DELETE /alerts/{id}`, `GET /alerts/fields`, `POST /alerts/{id}/test` added to `api_rbac_routes` local; enforced in Lambda handler (valid JWT + is_admin); CORS already covers all methods via existing cors_configuration block
-- [x] DB migrations — `015_add_alert_branch.sql` — adds nullable `branch VARCHAR(100)` column to `alerts` table; scopes sales/sale_returns category alerts to a specific branch (NULL or 'ALL' = all branches; balances alerts ignore this column); schema.sql updated to match; NOT YET APPLIED — apply manually via psql over the SSM tunnel post-merge; alerts_evaluator branch-filter logic lives in business-core (no IaC Lambda change required — redeploys on next apply)
-- [x] DB migrations — `016_create_supplier_accounts.sql` — creates `supplier_accounts` table (uni-temporal milestoned, natural key `name`, BIGSERIAL PK); partial unique index `uix_supplier_accounts_active` enforces one active row per supplier name; schema.sql updated to match; NOT YET APPLIED — apply manually via psql over the SSM tunnel post-merge after terraform apply has provisioned `lambda_etl_supplier_accounts`
+- [x] DB migrations — `015_add_alert_branch.sql` — adds nullable `branch VARCHAR(100)` column to `alerts` table; scopes sales/sale_returns category alerts to a specific branch (NULL or 'ALL' = all branches; balances alerts ignore this column); schema.sql updated to match; APPLIED to AWS (2026-07-11) via psql over the SSM tunnel; alerts_evaluator branch-filter logic lives in business-core (no IaC Lambda change required — redeploys on next apply)
+- [x] DB migrations — `016_create_supplier_accounts.sql` — creates `supplier_accounts` table (uni-temporal milestoned, natural key `name`, BIGSERIAL PK); partial unique index `uix_supplier_accounts_active` enforces one active row per supplier name; schema.sql updated to match; APPLIED to AWS (2026-07-11) via psql over the SSM tunnel after terraform apply has provisioned `lambda_etl_supplier_accounts`
 - [x] Terraform — `lambda_etl_supplier_accounts.tf` — Supplier Accounts ETL Lambda (`python3.12`, handler `handler.lambda_handler`, 256 MB, 120 s); own pip layer at `.lambda_layers/etl_supplier_accounts/`; IAM: VPCNetworking + Logs + SecretsManager(db) + S3 Get/Put/Delete + ListBucket; env: DATA_BUCKET, DB_SECRET_ARN; VPC private subnets + sg_lambda; source: `business-core/lambda/etl_supplier_accounts/`; business-core must be pushed BEFORE this repo is planned/applied
 - [x] Terraform — `lambda_etl_sales.tf` shared S3 bucket notification extended — added `lambda_function` block for `etl_supplier_accounts` with prefix `raw/Supplier` and suffix `.xlsx`; `aws_lambda_permission.s3_invoke_etl_supplier_accounts` added to `depends_on`; no new `aws_s3_bucket_notification` resource created (single-resource-per-bucket rule preserved)
 - [x] CI — `.github/workflows/terraform.yml` — "Build etl_supplier_accounts layer" pip-install step added to BOTH the plan job AND the apply job; installs into `.lambda_layers/etl_supplier_accounts/python/` with linux-compatible wheels
-- [x] DB migrations — `017_create_supplier_ledger.sql` — creates `supplier_ledger` table (identical shape to `customer_ledger`, uni-temporal milestoned, natural key `(transaction_date, voucher_no, account_name, category, sub_category)`); same indexes pattern; NOT YET APPLIED — apply MANUALLY via psql over the SSM tunnel post-merge
+- [x] DB migrations — `017_create_supplier_ledger.sql` — creates `supplier_ledger` table (identical shape to `customer_ledger`, uni-temporal milestoned, natural key `(transaction_date, voucher_no, account_name, category, sub_category)`); same indexes pattern; APPLIED to AWS (2026-07-11) via psql over the SSM tunnel
 - [x] Terraform — `lambda_etl_supplier_ledger.tf` — Supplier Ledger ETL Lambda (`python3.12`, 512 MB, 300 s); own pip layer at `.lambda_layers/etl_supplier_ledger/`; IAM: VPCNetworking + Logs + SecretsManager(db) + S3 **read-only** (`s3:GetObject` on bucket/* and `s3:ListBucket` on bucket arn — no PutObject, no DeleteObject, no events:PutEvents); env: DATA_BUCKET, DB_SECRET_ARN, RAW_PREFIX, PROCESSED_PREFIX; VPC private subnets + sg_lambda; triggered via EventBridge "Object Created" rule (NOT an S3 notification — avoids the overlapping-prefix conflict with etl_customer_ledger); source: `business-core/lambda/etl_supplier_ledger/`
 - [x] Terraform — `lambda_etl_sales.tf` `aws_s3_bucket_notification.etl_trigger` — added `eventbridge = true` (single additive line); enables S3 to forward all object events to EventBridge so the new `s3_ledger_object_created` rule in `lambda_etl_supplier_ledger.tf` fires; no existing `lambda_function {}` blocks were touched
 - [x] CI — `.github/workflows/terraform.yml` — "Build etl_supplier_ledger layer" pip-install step added to BOTH the plan job AND the apply job; installs into `.lambda_layers/etl_supplier_ledger/python/` with linux-compatible wheels
 - [x] Terraform — `lambda_api.tf` updated — `GET /reports/supplier-balances-fy` route added (`aws_apigatewayv2_route.reports_supplier_balances_fy`); same explicit per-path route pattern as `reports_customer_balances_fy`; CORS already covers GET via the existing `cors_configuration` block — no CORS change needed; data report routes are NOT listed in `api_rbac_routes` (only /auth, /admin, /alerts live there) so no change to that local
-- [x] DB migrations — `018_add_supplier_balances_fy_screen.sql` — idempotently inserts `app_screens` seed row `('reports.supplier_balances_fy', 'Supplier Balances (FY)', 91)` with `ON CONFLICT (screen_key) DO NOTHING`; RBAC key for the new Supplier Balances (FY) report screen; mirrors `010_add_customer_balances_fy_screen.sql`; `db/schema.sql` seeded `app_screens` block updated to include sort_order 91 row for consistency; NOT YET APPLIED — apply manually via psql over the SSM tunnel post-merge; admins must then map `reports.supplier_balances_fy` to roles via the Access Control screen in the dashboard
+- [x] DB migrations — `018_add_supplier_balances_fy_screen.sql` — idempotently inserts `app_screens` seed row `('reports.supplier_balances_fy', 'Supplier Balances (FY)', 91)` with `ON CONFLICT (screen_key) DO NOTHING`; RBAC key for the new Supplier Balances (FY) report screen; mirrors `010_add_customer_balances_fy_screen.sql`; `db/schema.sql` seeded `app_screens` block updated to include sort_order 91 row for consistency; APPLIED to AWS (2026-07-11) via psql over the SSM tunnel; admins must then map `reports.supplier_balances_fy` to roles via the Access Control screen in the dashboard
 - [x] Terraform — `lambda_api.tf` updated — `GET /reports/monthly-sales` route added (`aws_apigatewayv2_route.reports_monthly_sales`); same explicit per-path route pattern as `reports_customer_balances_fy` and `reports_supplier_balances_fy`; CORS already covers GET via the existing `cors_configuration` block — no CORS change needed; public data route — NOT listed in `api_rbac_routes` (only /auth, /admin, /alerts live there)
-- [x] DB migrations — `019_add_monthly_sales_screen.sql` — idempotently inserts `app_screens` seed row `('reports.monthly_sales', 'Monthly Sales', 92)` with `ON CONFLICT (screen_key) DO NOTHING`; RBAC key for the new Monthly Sales report screen; mirrors `010` and `018`; `db/schema.sql` seeded `app_screens` block updated to include sort_order 92 row for consistency; NOT YET APPLIED — apply manually via psql over the SSM tunnel post-merge; admins must then map `reports.monthly_sales` to roles via the Access Control screen in the dashboard
+- [x] DB migrations — `019_add_monthly_sales_screen.sql` — idempotently inserts `app_screens` seed row `('reports.monthly_sales', 'Monthly Sales', 92)` with `ON CONFLICT (screen_key) DO NOTHING`; RBAC key for the new Monthly Sales report screen; mirrors `010` and `018`; `db/schema.sql` seeded `app_screens` block updated to include sort_order 92 row for consistency; APPLIED to AWS (2026-07-11) via psql over the SSM tunnel; admins must then map `reports.monthly_sales` to roles via the Access Control screen in the dashboard
 - [x] Terraform — `lambda_alerts_evaluator.tf` updated — added `aws_lambda_layer_version.alerts_evaluator_deps` (`${var.project}-alerts-evaluator-deps`) built from `.lambda_layers/alerts_evaluator_deps/python/` via `archive_file` + `filemd5` pattern; `alerts_evaluator` Lambda's `layers` now lists BOTH `api_deps.arn` (psycopg2 — retained) AND `alerts_evaluator_deps.arn` (reportlab — for Monthly Sales PDF email attachments); no IAM change (ses:SendRawEmail already granted)
 - [x] CI — `.github/workflows/terraform.yml` — "Build alerts_evaluator_deps layer" pip-install step added to BOTH the plan job AND the apply job; installs `reportlab` into `.lambda_layers/alerts_evaluator_deps/python/` with `--platform manylinux2014_x86_64 --only-binary=:all:` Linux-compatible wheels; business-core must be pushed first (Terraform evaluates `archive_file` source path at validate time)
 
@@ -493,12 +515,12 @@ Every run writes a row to `etl_runs`: `run_date`, `started_at`, `completed_at`, 
 
 ## What Is Next (build in this order)
 
-- [ ] **Deploy Terraform** — apply `elasticache.tf` + updated Lambda configs via GitHub Actions; capture `elasticache_host` output
-- [ ] **Deploy UI** — connect `D:\Projects\Iravi\ui\` to AWS Amplify Hosting; set `VITE_API_BASE_URL` in Amplify console to value of `terraform output api_endpoint`
-- [ ] **Test stocks flow end-to-end** — upload real `Current Stock Balances*.xlsx` to `raw/` in S3, verify `snapshot_stock` rows in RDS, verify Redis keys populate, verify UI tiles + table render correctly
+- [x] **Deploy Terraform** — `elasticache.tf` + Lambda configs applied via GitHub Actions; `elasticache_host` output captured
+- [x] **Deploy UI** — `ui/` connected to AWS Amplify Hosting; `VITE_API_BASE_URL` set from `terraform output api_endpoint`
+- [x] **Test stocks flow end-to-end** — stocks pipeline confirmed complete end-to-end (see "What Is Built")
+- [x] **Implement etl_customer_ledger handler** — done (`customer_ledger` ETL complete, unitemporal milestoning, emits `ETLCustomerLedgerSuccess`)
 
-- [ ] **Implement etl_sales handler** — parse `RGF Sales Book*.xlsx` (skip rows 1–5, detect total rows); upsert `dim_customers` + `fact_sales`; emit `ETLSalesSuccess`; move file to `processed/`
-- [ ] **Implement etl_customer_ledger handler** — scaffold `business-core/lambda/etl_customer_ledger/handler.py`; parse `Ledger All Accounts*.xlsx`; skip "Brought Forward" rows; two-step milestoning upsert into `customer_ledger`; emit `ETLCustomerLedgerSuccess`; move file to `processed/` (CI layer build step already exists)
+- [ ] **Implement etl_sales handler** — parse `RGF Sales Book*.xlsx` (skip rows 1–5, detect total rows); upsert `dim_customers` + `fact_sales`; emit `ETLSalesSuccess`; move file to `processed/` (still a stub)
 - [ ] **Implement `_update_sales_cache()`** in redis_updater once etl_sales is verified
 
 - [ ] **Cognito** — add Terraform; JWT authoriser on API Gateway; Amplify Authenticator in UI
@@ -512,7 +534,7 @@ Every run writes a row to `etl_runs`: `run_date`, `started_at`, `completed_at`, 
 - [x] Migration `014_add_alert_schedule_time.sql` applied manually via psql over the SSM tunnel (`schedule_time` column on `alerts` table)
 - [ ] SES DNS records — run `terraform output ses_dkim_tokens` and add the 3 CNAMEs + TXT `_amazonses` record to the DNS provider; SES auto-verifies within 72 h
 - [ ] Request SES production access via AWS Console (Account dashboard → Request production access); until approved, add each alert recipient as a verified identity in SES sandbox
-- [ ] iravi-ui: build the Alerts admin screen (`GET/POST/PUT/DELETE /alerts`, `GET /alerts/fields`, `POST /alerts/{id}/test`); expose `schedule_time` as a time-picker field on the alert form
+- [x] iravi-ui: Alerts admin screen built (`ui/src/pages/Alerts/AlertsList.tsx` + `AlertBuilder.tsx`) — wired to `GET/POST/PUT/DELETE /alerts`, `GET /alerts/fields`, `POST /alerts/{id}/test`; `schedule_time` exposed as a time-picker
 
 ---
 
@@ -525,7 +547,7 @@ Every run writes a row to `etl_runs`: `run_date`, `started_at`, `completed_at`, 
 | Excel parsing | openpyxl | Handles .xlsx, reads cell values cleanly |
 | Redis client | redis-py | Standard Python Redis client |
 | IaC | Terraform | Reproducible, version-controlled |
-| Auth | AWS Cognito | Native AWS, integrates with API Gateway |
+| Auth | App-level JWT/RBAC (DB users, PBKDF2 + HS256) | Fine-grained per-screen roles managed in-app; Cognito on API Gateway deferred to phase 3 |
 | Frontend | React + Amplify | Good charting ecosystem, Amplify handles CI/CD + hosting |
 | AWS region | ap-south-1 | Closest to business location |
 | RDS Multi-AZ | No (for now) | Dashboard is not mission-critical — add later |

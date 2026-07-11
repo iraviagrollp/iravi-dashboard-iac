@@ -78,6 +78,32 @@ CREATE INDEX idx_supplier_accounts_name  ON supplier_accounts (name);
 CREATE INDEX idx_supplier_accounts_out_z ON supplier_accounts (out_z) WHERE out_z IS NULL;
 
 
+-- Admin-configured monthly sale targets, per state. Natural key: (state, month, yr).
+-- Uni-temporal milestoning: in_z/out_z track versions; out_z IS NULL = current record.
+-- business-core closes the open row for a natural key then inserts a fresh one
+-- whenever a target is edited. (migration 020)
+CREATE TABLE monthly_sale_targets (
+    id           BIGSERIAL     PRIMARY KEY,
+    state        VARCHAR(10)   NOT NULL,   -- 'AP' | 'TG'
+    month        SMALLINT      NOT NULL,   -- 1..12
+    yr           SMALLINT      NOT NULL,   -- e.g. 2026
+    target_lakhs NUMERIC(14,2) NOT NULL,   -- monthly sale target, in Lakhs (INR)
+    in_z         TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+    out_z        TIMESTAMPTZ,              -- NULL = current record
+
+    CONSTRAINT chk_monthly_sale_targets_state CHECK (state IN ('AP', 'TG')),
+    CONSTRAINT chk_monthly_sale_targets_month CHECK (month BETWEEN 1 AND 12)
+);
+
+-- One active version per (state, month, yr) at a time.
+CREATE UNIQUE INDEX uix_monthly_sale_targets_active
+    ON monthly_sale_targets (state, month, yr)
+    WHERE out_z IS NULL;
+
+CREATE INDEX idx_monthly_sale_targets_yr    ON monthly_sale_targets (yr);
+CREATE INDEX idx_monthly_sale_targets_out_z ON monthly_sale_targets (out_z) WHERE out_z IS NULL;
+
+
 -- ============================================================
 -- TRANSACTION FACT TABLES
 -- Append daily. Upsert on natural business key to stay idempotent.
