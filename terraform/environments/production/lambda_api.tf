@@ -195,6 +195,24 @@ resource "aws_apigatewayv2_route" "ledger_outstanding" {
   target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
 }
 
+resource "aws_apigatewayv2_route" "supplier_ledger_range" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "GET /supplier-ledger/range"
+  target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "supplier_ledger" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "GET /supplier-ledger"
+  target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "suppliers_details" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "GET /suppliers/details"
+  target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
+}
+
 resource "aws_apigatewayv2_route" "ledger_statement" {
   api_id    = aws_apigatewayv2_api.main.id
   route_key = "GET /ledger/statement"
