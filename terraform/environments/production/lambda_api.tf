@@ -303,6 +303,12 @@ resource "aws_apigatewayv2_route" "reports_monthly_sales" {
   target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
 }
 
+resource "aws_apigatewayv2_route" "reports_monthly_collection" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "GET /reports/monthly-collection"
+  target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
+}
+
 resource "aws_apigatewayv2_route" "notify" {
   api_id    = aws_apigatewayv2_api.main.id
   route_key = "POST /notify"
@@ -341,6 +347,11 @@ locals {
     # CORS already covers GET/POST via the cors_configuration block.
     "GET /config/monthly-targets",
     "POST /config/monthly-targets",
+    # ── Monthly Collection Targets — admin-only config CRUD ──────────────────
+    # Enforced in the Lambda handler: valid JWT + is_admin required.
+    # CORS already covers GET/POST via the cors_configuration block.
+    "GET /config/monthly-collection-targets",
+    "POST /config/monthly-collection-targets",
   ]
 }
 
