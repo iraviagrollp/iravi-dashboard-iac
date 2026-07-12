@@ -1,4 +1,4 @@
--- 020_create_monthly_sale_targets.sql
+-- 023_create_monthly_sale_targets.sql
 -- Monthly Sale Targets — admin-configured per-state monthly sales targets
 -- for the "Monthly Sale Targets" feature. Natural key: (state, month, yr).
 -- business-core closes the open row for a natural key then inserts a fresh
@@ -10,7 +10,7 @@
 --
 -- psql "host=localhost port=5432 dbname=iravi_dashboard user=dashboard_admin \
 --       password='<password>' sslmode=require" \
---      -f db/migrations/020_create_monthly_sale_targets.sql
+--      -f db/migrations/023_create_monthly_sale_targets.sql
 
 CREATE TABLE monthly_sale_targets (
     id           BIGSERIAL     PRIMARY KEY,

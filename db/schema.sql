@@ -34,8 +34,11 @@ CREATE INDEX idx_customers_code ON dim_customers (customer_code);
 CREATE INDEX idx_customers_city ON dim_customers (city);
 
 
--- Customer Accounts Export File. One row per customer (master data).
--- Upsert on customer_name — no milestoning; updated_at tracks last refresh.
+-- Customer Accounts Export File. One active row per customer name (natural key).
+-- Uni-temporal milestoning: in_z/out_z track versions; out_z IS NULL = current record.
+-- business-core closes the open row for a name then inserts a fresh one each run,
+-- and retires (closes, without re-inserting) customers that drop out of the latest
+-- export. (migration 022)
 -- state: 'AP' = Andhra Pradesh, 'TG' = Telangana.
 CREATE TABLE customer_details (
     id              SERIAL PRIMARY KEY,
@@ -47,11 +50,17 @@ CREATE TABLE customer_details (
     pin             VARCHAR(10),
     mobile_no       VARCHAR(20),
     updated_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
-
-    CONSTRAINT uq_customer_details_name UNIQUE (customer_name)
+    in_z            TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    out_z           TIMESTAMPTZ                 -- NULL = current record
 );
 
-CREATE INDEX idx_customer_details_code ON customer_details (customer_code);
+-- Enforce one active version per customer_name at a time.
+CREATE UNIQUE INDEX uix_customer_details_active
+    ON customer_details (customer_name)
+    WHERE out_z IS NULL;
+
+CREATE INDEX idx_customer_details_code  ON customer_details (customer_code);
+CREATE INDEX idx_customer_details_out_z ON customer_details (out_z) WHERE out_z IS NULL;
 
 
 -- Supplier Accounts Export File. One active row per supplier name (natural key).
