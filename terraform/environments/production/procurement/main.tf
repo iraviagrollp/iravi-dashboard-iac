@@ -142,6 +142,8 @@ locals {
   procurement_routes = [
     "POST /auth/login",
     "GET /auth/me",
+    # Overview (landing-page tiles)
+    "GET /overview",
     # Technicals
     "GET /technicals",
     "POST /technicals",
