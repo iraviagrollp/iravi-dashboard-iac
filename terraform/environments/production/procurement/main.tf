@@ -114,7 +114,12 @@ resource "aws_apigatewayv2_api" "procurement" {
   protocol_type = "HTTP"
 
   cors_configuration {
-    allow_origins = ["https://${var.procurement_domain}"]
+    allow_origins = [
+      "https://${var.procurement_domain}",
+      # Amplify default branch domain — allows login before the custom domain is
+      # attached. Safe to remove once procurement.iraviagrolife.com is live.
+      "https://main.d28mfxbip83zww.amplifyapp.com",
+    ]
     allow_methods = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
     allow_headers = ["Authorization", "Content-Type"]
   }
