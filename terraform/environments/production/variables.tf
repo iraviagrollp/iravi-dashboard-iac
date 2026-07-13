@@ -81,6 +81,18 @@ variable "dashboard_password" {
   sensitive   = true
 }
 
+variable "procurement_amplify_github_repo" {
+  description = "GitHub repository URL for the Procurement UI (https://github.com/owner/repo)"
+  type        = string
+  default     = "https://github.com/iraviagrollp/procurement-ui"
+}
+
+variable "procurement_domain" {
+  description = "Custom domain the Procurement UI is served from (used for API Gateway CORS)"
+  type        = string
+  default     = "procurement.iraviagrolife.com"
+}
+
 variable "alerts_sender_email" {
   description = "From address for balance-alert emails sent via SES (must belong to alerts_domain)"
   type        = string
