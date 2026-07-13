@@ -64,7 +64,8 @@ D:\Projects\Iravi\
 │   │       ├── 021_add_supplier_ledger_statement_screen.sql
 │   │       ├── 026_create_procurement_schema.sql       ← procurement schema + 5 CRUD tables
 │   │       ├── 027_add_procurement_screens.sql         ← RBAC seeds procurement.* screens
-│   │       └── 028_seed_procurement_data.sql           ← seed from IAL Enquiry.xlsx
+│   │       ├── 028_seed_procurement_data.sql           ← seed from IAL Enquiry.xlsx
+│   │       └── 029_add_procurement_overview_screen.sql ← seeds procurement.overview screen
 │   ├── design/                               ← git-ignored (local only)
 │   │   ├── stakeholder-presentation.html
 │   │   ├── system-architecture-diagram.html  ← dark SVG, full four-repo diagram (updated 2026-06-25: alerts, SES, mig 013-014, new API routes)
