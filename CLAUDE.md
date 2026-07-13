@@ -61,7 +61,10 @@ D:\Projects\Iravi\
 │   │       ├── 018_add_supplier_balances_fy_screen.sql
 │   │       ├── 019_add_monthly_sales_screen.sql
 │   │       ├── 020_add_supplier_balances_screen.sql
-│   │       └── 021_add_supplier_ledger_statement_screen.sql
+│   │       ├── 021_add_supplier_ledger_statement_screen.sql
+│   │       ├── 026_create_procurement_schema.sql       ← procurement schema + 5 CRUD tables
+│   │       ├── 027_add_procurement_screens.sql         ← RBAC seeds procurement.* screens
+│   │       └── 028_seed_procurement_data.sql           ← seed from IAL Enquiry.xlsx
 │   ├── design/                               ← git-ignored (local only)
 │   │   ├── stakeholder-presentation.html
 │   │   ├── system-architecture-diagram.html  ← dark SVG, full four-repo diagram (updated 2026-06-25: alerts, SES, mig 013-014, new API routes)
@@ -436,6 +439,32 @@ Expense Tracker / Finance Overview) was superseded; Expenses remains a phase 3+ 
 ---
 
 ## What Is Built
+
+- [x] **Procurement stack — segregated `production/procurement/` Terraform module (2026-07-13):**
+  new folder `terraform/environments/production/procurement/` (`variables.tf` / `main.tf` /
+  `outputs.tf`) instantiated from `procurement.tf` in the production root. Provisions the
+  `procurement.iraviagrolife.com` stack: the `procurement_api` Lambda (source
+  `business-core/lambda/procurement_api/`, reuses the shared `api_deps` psycopg2 layer — **no new CI
+  layer step**, VPC private subnets + `sg_lambda`, env `DB_SECRET_ARN` + `JWT_SECRET_ARN`, IAM =
+  VPCNetworking + Logs + SecretsManager on the db+jwt secrets only), its **own** API Gateway HTTP API
+  (v2) with 22 routes (`/auth/*` + CRUD for technicals/supplier-companies/suppliers/enquiries/pdc) and
+  CORS scoped to `https://procurement.iraviagrolife.com`, and its **own** Amplify app
+  (`${project}-procurement-ui`, env var `VITE_API_BASE_URL` = the new stage URL). Root `procurement.tf`
+  passes the shared VPC/subnets/SG, db+jwt secret ARNs, and the `api_deps` layer ARN into the module,
+  and re-exports `procurement_api_endpoint` + `procurement_amplify_default_domain`. New vars
+  `procurement_amplify_github_repo` + `procurement_domain` in `variables.tf`. `terraform fmt` clean.
+  **One-time manual (mirrors the dashboard Amplify flow):** connect the `procurement-ui` repo in the
+  Amplify console, `terraform import 'module.procurement.aws_amplify_app.procurement' <APP_ID>`, then
+  apply; add the custom domain in the console + a CNAME at the DNS provider. **DB:** apply migrations
+  026→027→028 via psql over the SSM tunnel BEFORE the procurement API serves data.
+- [x] **DB migrations 026–028 (procurement, 2026-07-13)** — `026_create_procurement_schema.sql`
+  creates `procurement` schema + `supplier_companies` / `technicals` / `suppliers` / `enquiries` /
+  `pdc` (plain CRUD tables: `is_active` + `updated_at` trigger, NOT uni-temporal milestoning — this
+  is hand-entered operational config, not an ETL snapshot feed); `027_add_procurement_screens.sql`
+  seeds five `procurement.*` `app_screens` keys (shared RBAC — grant to procurement roles in Access
+  Control); `028_seed_procurement_data.sql` idempotently seeds technicals/companies/suppliers/
+  enquiries/PDC from `design/IAL Enquiry.xlsx`. **NOT yet applied to AWS** — apply 026→027→028 in
+  order via psql over the SSM tunnel.
 
 - [x] System design finalized and documented
 - [x] Stakeholder presentation HTML (`design/stakeholder-presentation.html`)
