@@ -24,9 +24,9 @@ CREATE TABLE IF NOT EXISTS procurement.purchase_orders (
   supplier_company_id  BIGINT NOT NULL REFERENCES procurement.supplier_companies(id) ON DELETE RESTRICT,
   product_technical_id BIGINT NOT NULL REFERENCES procurement.technicals(id) ON DELETE RESTRICT,
   quantity             NUMERIC(16,2) NOT NULL,
-  quantity_unit        VARCHAR(10) NOT NULL,          -- 'KGS' | 'LTRS'
-  price                VARCHAR(100),                  -- free text, e.g. 'Rs. 540/LTR'
-  gst                  VARCHAR(20) NOT NULL DEFAULT '18%',
+  quantity_unit        VARCHAR(10) NOT NULL,              -- 'KGS' | 'LTRS'
+  rate                 NUMERIC(14,2) NOT NULL DEFAULT 0,  -- ₹ per unit (Amount = quantity * rate)
+  gst_rate             NUMERIC(5,2) NOT NULL DEFAULT 18,  -- GST %
   terms                VARCHAR(300),
   dispatch             VARCHAR(300),
   transport            VARCHAR(300),
