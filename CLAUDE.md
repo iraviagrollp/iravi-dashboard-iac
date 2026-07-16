@@ -455,7 +455,8 @@ Expense Tracker / Finance Overview) was superseded; Expenses remains a phase 3+ 
   `039_create_procurement_purchase_orders.sql` creates `procurement.purchase_orders` (per-day PO
   number `IAL/YYYYMMDD/seq`; unique `(po_date, po_seq)` + unique `po_no`; FKs to supplier_companies
   [supplier + bill-to + ship-to], technicals [product], signatory_authorities; quantity + unit
-  KGS/LTRS, price/gst/terms/dispatch/transport text, highlighted note; updated_at trigger);
+  KGS/LTRS, numeric rate + gst_rate (API returns computed amount/gst_amount/total_value),
+  terms/dispatch/transport text, highlighted note; updated_at trigger);
   `040_add_procurement_purchase_order_screen.sql` seeds `procurement.purchase_orders` (sort_order 108).
   Added 5 routes (`/purchase-orders*` + `GET /purchase-orders/{id}/pdf`) to `local.procurement_routes`.
   **Reportlab reuse for PDF export:** the procurement Lambda now attaches a second layer —
