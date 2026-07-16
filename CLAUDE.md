@@ -71,7 +71,9 @@ D:\Projects\Iravi\
 │   │       ├── 033_create_procurement_packaging_meta.sql     ← procurement.packaging_meta (master KG/LTR size lists)
 │   │       ├── 034_seed_procurement_packaging_meta.sql       ← seeds KG+LTR sizes from Opening Stock PDF
 │   │       ├── 035_create_procurement_packagings.sql         ← procurement.packagings (brand → meta size)
-│   │       └── 036_add_procurement_packaging_screens.sql     ← seeds packaging_meta + packagings screens
+│   │       ├── 036_add_procurement_packaging_screens.sql     ← seeds packaging_meta + packagings screens
+│   │       ├── 037_create_procurement_signatory_authorities.sql       ← procurement.signatory_authorities
+│   │       └── 038_add_procurement_signatory_authority_screen.sql     ← seeds procurement.signatory_authorities screen
 │   ├── design/                               ← git-ignored (local only)
 │   │   ├── stakeholder-presentation.html
 │   │   ├── system-architecture-diagram.html  ← dark SVG, full four-repo diagram (updated 2026-06-25: alerts, SES, mig 013-014, new API routes)
@@ -446,6 +448,15 @@ Expense Tracker / Finance Overview) was superseded; Expenses remains a phase 3+ 
 ---
 
 ## What Is Built
+
+- [x] **Procurement Signatory Authority (2026-07-16):** `037_create_procurement_signatory_authorities.sql`
+  creates `procurement.signatory_authorities` (`id`, `name` NOT NULL unique, `title`, `department`,
+  `is_active`, updated_at trigger); `038_add_procurement_signatory_authority_screen.sql` seeds the
+  `procurement.signatory_authorities` `app_screens` key (sort_order 107). Added 4 CRUD routes
+  (`/signatory-authorities*`) to `local.procurement_routes` in the `production/procurement/` module
+  (`terraform fmt` clean; the API Lambda auto-redeploys from source). Backs procurement_api
+  `_signatories_*` + procurement-ui `SignatoryAuthorities.tsx`. **NOT yet applied to AWS** — apply
+  037 → 038 via psql over the SSM tunnel; admins then grant the screen to roles in Access Control.
 
 - [x] **Procurement Packaging Meta + Packaging Configuration (2026-07-16):**
   `033_create_procurement_packaging_meta.sql` creates `procurement.packaging_meta` (master size list —
