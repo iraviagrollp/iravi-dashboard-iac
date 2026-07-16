@@ -1,5 +1,5 @@
 # ── ETL Stocks Lambda ──────────────────────────────────────────────────────────
-# Triggered by S3 ObjectCreated on raw/Current Stock Balances*.xlsx.
+# Triggered by S3 ObjectCreated on raw/StockReport_<YYYYMMDD>_<HHMMSS>.csv.
 # Parses stock balance xlsx, joins rates from Product Masters With Rates*.xlsx,
 # writes processed output to processed/Stock - Processed <date>.xlsx.
 # Source: D:\Projects\Iravi\business-core\lambda\etl_stocks\

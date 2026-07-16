@@ -148,8 +148,8 @@ resource "aws_s3_bucket_notification" "etl_trigger" {
   lambda_function {
     lambda_function_arn = aws_lambda_function.etl_stocks.arn
     events              = ["s3:ObjectCreated:*"]
-    filter_prefix       = "raw/Current"
-    filter_suffix       = ".xlsx"
+    filter_prefix       = "raw/StockReport"
+    filter_suffix       = ".csv"
   }
 
   lambda_function {
