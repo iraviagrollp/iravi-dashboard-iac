@@ -149,6 +149,11 @@ locals {
     "POST /technicals",
     "PUT /technicals/{id}",
     "DELETE /technicals/{id}",
+    # Packagings (packaging sizes per brand)
+    "GET /packagings",
+    "POST /packagings",
+    "PUT /packagings/{id}",
+    "DELETE /packagings/{id}",
     # Supplier companies
     "GET /supplier-companies",
     "POST /supplier-companies",
