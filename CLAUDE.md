@@ -453,7 +453,7 @@ Expense Tracker / Finance Overview) was superseded; Expenses remains a phase 3+ 
 
 - [x] **Procurement Purchase Order (Bulk) + PDF export (2026-07-16):**
   `039_create_procurement_purchase_orders.sql` creates `procurement.purchase_orders` (per-day PO
-  number `IAL/YYYYMMDD/seq`; unique `(po_date, po_seq)` + unique `po_no`; FKs to supplier_companies
+  number `IAL/{fy}/seq` (fy = 4-digit FY code e.g. 2627; serial resets per FY); `fy` column + unique `(fy, po_seq)` + unique `po_no`; FKs to supplier_companies
   [supplier + bill-to + ship-to], technicals [product], signatory_authorities; quantity + unit
   KGS/LTRS, numeric rate + gst_rate (API returns computed amount/gst_amount/total_value),
   terms/dispatch/transport text, highlighted note; updated_at trigger);
