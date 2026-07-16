@@ -66,7 +66,8 @@ D:\Projects\Iravi\
 │   │       ├── 027_add_procurement_screens.sql         ← RBAC seeds procurement.* screens
 │   │       ├── 028_seed_procurement_data.sql           ← seed from IAL Enquiry.xlsx
 │   │       ├── 029_add_procurement_overview_screen.sql ← seeds procurement.overview screen
-│   │       └── 030_add_procurement_enquiry_search_screen.sql ← seeds procurement.enquiry_search screen
+│   │       ├── 030_add_procurement_enquiry_search_screen.sql ← seeds procurement.enquiry_search screen
+│   │       └── 032_add_supplier_company_address.sql          ← procurement.supplier_companies +address/state/pin/gstin
 │   ├── design/                               ← git-ignored (local only)
 │   │   ├── stakeholder-presentation.html
 │   │   ├── system-architecture-diagram.html  ← dark SVG, full four-repo diagram (updated 2026-06-25: alerts, SES, mig 013-014, new API routes)
@@ -441,6 +442,14 @@ Expense Tracker / Finance Overview) was superseded; Expenses remains a phase 3+ 
 ---
 
 ## What Is Built
+
+- [x] **DB migration 032 — procurement supplier-company address (2026-07-16):**
+  `032_add_supplier_company_address.sql` adds nullable `address_line1/2/3`, `state`, `pin_code`,
+  `gstin` columns to `procurement.supplier_companies` (additive `ALTER TABLE ... ADD COLUMN IF NOT
+  EXISTS`; legacy `location` retained). Backs the extended Supplier Company Configuration screen
+  (procurement_api `_companies_*` + procurement-ui). **NOT yet applied to AWS** — apply via psql
+  over the SSM tunnel before the updated `procurement_api` Lambda serves the new fields. No
+  Terraform change (the procurement API Lambda auto-redeploys from source on next apply).
 
 - [x] **Procurement stack — segregated `production/procurement/` Terraform module (2026-07-13):**
   new folder `terraform/environments/production/procurement/` (`variables.tf` / `main.tf` /
