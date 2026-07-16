@@ -73,7 +73,9 @@ D:\Projects\Iravi\
 │   │       ├── 035_create_procurement_packagings.sql         ← procurement.packagings (brand → meta size)
 │   │       ├── 036_add_procurement_packaging_screens.sql     ← seeds packaging_meta + packagings screens
 │   │       ├── 037_create_procurement_signatory_authorities.sql       ← procurement.signatory_authorities
-│   │       └── 038_add_procurement_signatory_authority_screen.sql     ← seeds procurement.signatory_authorities screen
+│   │       ├── 038_add_procurement_signatory_authority_screen.sql     ← seeds procurement.signatory_authorities screen
+│   │       ├── 039_create_procurement_purchase_orders.sql             ← procurement.purchase_orders (Bulk PO)
+│   │       └── 040_add_procurement_purchase_order_screen.sql          ← seeds procurement.purchase_orders screen
 │   ├── design/                               ← git-ignored (local only)
 │   │   ├── stakeholder-presentation.html
 │   │   ├── system-architecture-diagram.html  ← dark SVG, full four-repo diagram (updated 2026-06-25: alerts, SES, mig 013-014, new API routes)
@@ -448,6 +450,21 @@ Expense Tracker / Finance Overview) was superseded; Expenses remains a phase 3+ 
 ---
 
 ## What Is Built
+
+- [x] **Procurement Purchase Order (Bulk) + PDF export (2026-07-16):**
+  `039_create_procurement_purchase_orders.sql` creates `procurement.purchase_orders` (per-day PO
+  number `IAL/YYYYMMDD/seq`; unique `(po_date, po_seq)` + unique `po_no`; FKs to supplier_companies
+  [supplier + bill-to + ship-to], technicals [product], signatory_authorities; quantity + unit
+  KGS/LTRS, price/gst/terms/dispatch/transport text, highlighted note; updated_at trigger);
+  `040_add_procurement_purchase_order_screen.sql` seeds `procurement.purchase_orders` (sort_order 108).
+  Added 5 routes (`/purchase-orders*` + `GET /purchase-orders/{id}/pdf`) to `local.procurement_routes`.
+  **Reportlab reuse for PDF export:** the procurement Lambda now attaches a second layer —
+  `reportlab_layer_arn` (new module var), wired in `procurement.tf` to the existing
+  `aws_lambda_layer_version.alerts_evaluator_deps` (reportlab) so **no new CI layer step** is needed.
+  Binary PDF served via the Lambda's `isBase64Encoded` response (HTTP API v2 decodes it). `terraform
+  fmt` clean. Backs procurement_api `_po_*` / `po_pdf.py` + procurement-ui `PurchaseOrders.tsx`.
+  **NOT yet applied to AWS** — apply 039 → 040 via psql over the SSM tunnel; admins then grant
+  `procurement.purchase_orders` to roles in Access Control.
 
 - [x] **Procurement Signatory Authority (2026-07-16):** `037_create_procurement_signatory_authorities.sql`
   creates `procurement.signatory_authorities` (`id`, `name` NOT NULL unique, `title`, `department`,

@@ -37,6 +37,11 @@ variable "api_deps_layer_arn" {
   type        = string
 }
 
+variable "reportlab_layer_arn" {
+  description = "ARN of the shared reportlab Lambda layer (reused for Purchase Order PDF export) — not rebuilt"
+  type        = string
+}
+
 variable "amplify_github_repo" {
   description = "GitHub repository URL for the Procurement UI"
   type        = string

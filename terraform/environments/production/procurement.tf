@@ -11,9 +11,10 @@ module "procurement" {
   private_subnet_ids = aws_subnet.private[*].id
   sg_lambda_id       = aws_security_group.lambda.id
 
-  db_secret_arn      = aws_secretsmanager_secret.db.arn
-  jwt_secret_arn     = aws_secretsmanager_secret.jwt.arn
-  api_deps_layer_arn = aws_lambda_layer_version.api_deps.arn
+  db_secret_arn       = aws_secretsmanager_secret.db.arn
+  jwt_secret_arn      = aws_secretsmanager_secret.jwt.arn
+  api_deps_layer_arn  = aws_lambda_layer_version.api_deps.arn
+  reportlab_layer_arn = aws_lambda_layer_version.alerts_evaluator_deps.arn
 
   amplify_github_repo = var.procurement_amplify_github_repo
   procurement_domain  = var.procurement_domain
