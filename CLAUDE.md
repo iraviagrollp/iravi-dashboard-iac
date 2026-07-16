@@ -68,8 +68,10 @@ D:\Projects\Iravi\
 │   │       ├── 029_add_procurement_overview_screen.sql ← seeds procurement.overview screen
 │   │       ├── 030_add_procurement_enquiry_search_screen.sql ← seeds procurement.enquiry_search screen
 │   │       ├── 032_add_supplier_company_address.sql          ← procurement.supplier_companies +address/state/pin/gstin
-│   │       ├── 033_create_procurement_packagings.sql         ← procurement.packagings (packaging sizes per brand)
-│   │       └── 034_add_procurement_packagings_screen.sql     ← seeds procurement.packagings screen
+│   │       ├── 033_create_procurement_packaging_meta.sql     ← procurement.packaging_meta (master KG/LTR size lists)
+│   │       ├── 034_seed_procurement_packaging_meta.sql       ← seeds KG+LTR sizes from Opening Stock PDF
+│   │       ├── 035_create_procurement_packagings.sql         ← procurement.packagings (brand → meta size)
+│   │       └── 036_add_procurement_packaging_screens.sql     ← seeds packaging_meta + packagings screens
 │   ├── design/                               ← git-ignored (local only)
 │   │   ├── stakeholder-presentation.html
 │   │   ├── system-architecture-diagram.html  ← dark SVG, full four-repo diagram (updated 2026-06-25: alerts, SES, mig 013-014, new API routes)
@@ -445,16 +447,20 @@ Expense Tracker / Finance Overview) was superseded; Expenses remains a phase 3+ 
 
 ## What Is Built
 
-- [x] **Procurement Packaging Configuration (2026-07-16):** `033_create_procurement_packagings.sql`
-  creates `procurement.packagings` (packaging sizes per brand — `id`, `technical_id` FK →
-  `technicals(id)` `ON DELETE CASCADE`, `packaging`, `is_active`, updated_at trigger, unique
-  `(technical_id, packaging)`); `034_add_procurement_packagings_screen.sql` seeds the
-  `procurement.packagings` `app_screens` key (sort_order 105). Added the 4 CRUD routes
-  (`GET/POST /packagings`, `PUT/DELETE /packagings/{id}`) to `local.procurement_routes` in the
-  `production/procurement/` module (`terraform fmt` clean; the procurement API Lambda auto-redeploys
-  from source). Backs procurement_api `_packagings_*` + procurement-ui `Packagings.tsx`.
-  **NOT yet applied to AWS** — apply 033 → 034 via psql over the SSM tunnel; admins then grant
-  `procurement.packagings` to procurement roles in Access Control.
+- [x] **Procurement Packaging Meta + Packaging Configuration (2026-07-16):**
+  `033_create_procurement_packaging_meta.sql` creates `procurement.packaging_meta` (master size list —
+  `unit_type` KG/LTR, `label`, `sort_order`, `is_active`, unique `(unit_type, label)`);
+  `034_seed_procurement_packaging_meta.sql` seeds the 12 KG + 13 LTR unique sizes from
+  `design/Opening Stock 15-Jul-2026.pdf` (labels verbatim, e.g. `100 GM (B)`, `1 LT`);
+  `035_create_procurement_packagings.sql` creates `procurement.packagings` (brand→size: `technical_id`
+  FK CASCADE + `packaging_meta_id` FK RESTRICT, unique `(technical_id, packaging_meta_id)`);
+  `036_add_procurement_packaging_screens.sql` seeds `app_screens` keys `procurement.packaging_meta`
+  (105) + `procurement.packagings` (106). Added 8 CRUD routes (`/packaging-meta*` + `/packagings*`) to
+  `local.procurement_routes` in the `production/procurement/` module (`terraform fmt` clean; the
+  procurement API Lambda auto-redeploys from source). Backs procurement_api `_packaging_meta_*` /
+  `_packagings_*` + procurement-ui `PackagingMeta.tsx` / `Packagings.tsx`.
+  **NOT yet applied to AWS** — apply 033 → 034 → 035 → 036 via psql over the SSM tunnel; admins then
+  grant the two `procurement.*` screens to procurement roles in Access Control.
 
 - [x] **DB migration 032 — procurement supplier-company address (2026-07-16):**
   `032_add_supplier_company_address.sql` adds nullable `address_line1/2/3`, `state`, `pin_code`,
