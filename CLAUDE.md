@@ -67,7 +67,9 @@ D:\Projects\Iravi\
 │   │       ├── 028_seed_procurement_data.sql           ← seed from IAL Enquiry.xlsx
 │   │       ├── 029_add_procurement_overview_screen.sql ← seeds procurement.overview screen
 │   │       ├── 030_add_procurement_enquiry_search_screen.sql ← seeds procurement.enquiry_search screen
-│   │       └── 032_add_supplier_company_address.sql          ← procurement.supplier_companies +address/state/pin/gstin
+│   │       ├── 032_add_supplier_company_address.sql          ← procurement.supplier_companies +address/state/pin/gstin
+│   │       ├── 033_create_procurement_packagings.sql         ← procurement.packagings (packaging sizes per brand)
+│   │       └── 034_add_procurement_packagings_screen.sql     ← seeds procurement.packagings screen
 │   ├── design/                               ← git-ignored (local only)
 │   │   ├── stakeholder-presentation.html
 │   │   ├── system-architecture-diagram.html  ← dark SVG, full four-repo diagram (updated 2026-06-25: alerts, SES, mig 013-014, new API routes)
@@ -442,6 +444,17 @@ Expense Tracker / Finance Overview) was superseded; Expenses remains a phase 3+ 
 ---
 
 ## What Is Built
+
+- [x] **Procurement Packaging Configuration (2026-07-16):** `033_create_procurement_packagings.sql`
+  creates `procurement.packagings` (packaging sizes per brand — `id`, `technical_id` FK →
+  `technicals(id)` `ON DELETE CASCADE`, `packaging`, `is_active`, updated_at trigger, unique
+  `(technical_id, packaging)`); `034_add_procurement_packagings_screen.sql` seeds the
+  `procurement.packagings` `app_screens` key (sort_order 105). Added the 4 CRUD routes
+  (`GET/POST /packagings`, `PUT/DELETE /packagings/{id}`) to `local.procurement_routes` in the
+  `production/procurement/` module (`terraform fmt` clean; the procurement API Lambda auto-redeploys
+  from source). Backs procurement_api `_packagings_*` + procurement-ui `Packagings.tsx`.
+  **NOT yet applied to AWS** — apply 033 → 034 via psql over the SSM tunnel; admins then grant
+  `procurement.packagings` to procurement roles in Access Control.
 
 - [x] **DB migration 032 — procurement supplier-company address (2026-07-16):**
   `032_add_supplier_company_address.sql` adds nullable `address_line1/2/3`, `state`, `pin_code`,
