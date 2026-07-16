@@ -85,7 +85,9 @@ resource "aws_lambda_function" "procurement_api" {
   source_code_hash = data.archive_file.procurement_api.output_base64sha256
   timeout          = local.api_timeout
   memory_size      = local.api_memory
-  layers           = [var.api_deps_layer_arn]
+  # api_deps  — psycopg2 (shared). reportlab — PDF export for Purchase Orders
+  # (shared layer, same one the alerts_evaluator uses).
+  layers = [var.api_deps_layer_arn, var.reportlab_layer_arn]
 
   vpc_config {
     subnet_ids         = var.private_subnet_ids
@@ -184,6 +186,12 @@ locals {
     "POST /signatory-authorities",
     "PUT /signatory-authorities/{id}",
     "DELETE /signatory-authorities/{id}",
+    # Purchase orders (Bulk) + PDF export
+    "GET /purchase-orders",
+    "POST /purchase-orders",
+    "PUT /purchase-orders/{id}",
+    "DELETE /purchase-orders/{id}",
+    "GET /purchase-orders/{id}/pdf",
   ]
 }
 
