@@ -179,6 +179,11 @@ locals {
     "POST /pdc",
     "PUT /pdc/{id}",
     "DELETE /pdc/{id}",
+    # Signatory authorities
+    "GET /signatory-authorities",
+    "POST /signatory-authorities",
+    "PUT /signatory-authorities/{id}",
+    "DELETE /signatory-authorities/{id}",
   ]
 }
 
