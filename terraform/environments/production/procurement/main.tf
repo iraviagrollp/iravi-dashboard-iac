@@ -149,7 +149,12 @@ locals {
     "POST /technicals",
     "PUT /technicals/{id}",
     "DELETE /technicals/{id}",
-    # Packagings (packaging sizes per brand)
+    # Packaging meta (master size lists per unit type)
+    "GET /packaging-meta",
+    "POST /packaging-meta",
+    "PUT /packaging-meta/{id}",
+    "DELETE /packaging-meta/{id}",
+    # Packagings (sizes assigned per brand)
     "GET /packagings",
     "POST /packagings",
     "PUT /packagings/{id}",
