@@ -77,7 +77,9 @@ D:\Projects\Iravi\
 │   │       ├── 039_create_procurement_purchase_orders.sql             ← procurement.purchase_orders (Bulk PO)
 │   │       ├── 040_add_procurement_purchase_order_screen.sql          ← seeds procurement.purchase_orders screen
 │   │       ├── 041_create_procurement_purchase_order_items.sql        ← procurement.purchase_order_items (Job Work multi-row grid)
-│   │       └── 042_add_procurement_po_include_terms.sql               ← procurement.purchase_orders.include_terms toggle
+│   │       ├── 042_add_procurement_po_include_terms.sql               ← procurement.purchase_orders.include_terms toggle
+│   │       ├── 043_add_procurement_po_generic_config.sql              ← procurement.purchase_orders.generic_config (Generic PO type)
+│   │       └── 044_relax_procurement_po_not_null_for_generic.sql      ← drops NOT NULL on 5 purchase_orders columns for Generic PO type
 │   ├── design/                               ← git-ignored (local only)
 │   │   ├── stakeholder-presentation.html
 │   │   ├── system-architecture-diagram.html  ← dark SVG, full four-repo diagram (updated 2026-06-25: alerts, SES, mig 013-014, new API routes)
@@ -452,6 +454,36 @@ Expense Tracker / Finance Overview) was superseded; Expenses remains a phase 3+ 
 ---
 
 ## What Is Built
+
+- [x] **DB migration 044 — relax NOT NULL on 5 procurement.purchase_orders columns for GENERIC PO type (2026-07-20):**
+  `044_relax_procurement_po_not_null_for_generic.sql` drops the `NOT NULL` constraint (added by
+  migration 039, before the `GENERIC` PO type existed) on `product_technical_id`, `quantity`,
+  `quantity_unit`, `rate`, `gst_rate` in `procurement.purchase_orders`. The `GENERIC` PO type
+  (migration 043's `generic_config` JSONB column) stores its data as a free-form table +
+  subject/body rather than populating these 5 relational columns, so inserting/updating a
+  `GENERIC` row with them left `NULL` previously raised a `NotNullViolation`. `BULK` and
+  `JOB_WORK` rows are unaffected — they continue to populate all 5 columns exactly as before;
+  per-`po_type` required-field validation is enforced at the application layer (the
+  `procurement_api` Lambda handler), so app-level data integrity is preserved despite the
+  relaxed DB constraint. `rate`/`gst_rate` keep their existing `DEFAULT` (0 / 18) — dropping
+  `NOT NULL` doesn't remove a column's `DEFAULT`. `ALTER COLUMN ... DROP NOT NULL` is
+  idempotent (safe to re-run), so no `IF EXISTS` guard is needed. **Terraform: no change
+  required** — pure DB constraint relaxation; the procurement API Lambda already handles
+  `GENERIC` request bodies from migration 043. **NOT yet applied to AWS** — apply 044 via
+  psql over the SSM tunnel (requires 039 already applied, which it is).
+
+- [x] **DB migration 043 — procurement.purchase_orders.generic_config (Generic PO type, 2026-07-20):**
+  `043_add_procurement_po_generic_config.sql` adds a nullable `generic_config JSONB` column
+  (additive `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`) to `procurement.purchase_orders`. Backs a
+  third PO type — `po_type = 'GENERIC'` — alongside the existing `BULK` (single-line columns) and
+  `JOB_WORK` (`procurement.purchase_order_items` multi-row grid) types. Unlike those two, GENERIC POs
+  carry a free-form configurable table plus a subject/body, all stored as one JSONB blob rather than
+  relational columns: `{ "subject": "...", "body": "...", "columns": ["S No.", "Particulars", ...],
+  "rows": [["1", "...", ...], ...] }`. No default — the column stays `NULL` for `BULK`/`JOB_WORK`
+  rows; only `GENERIC` rows populate it. **Terraform: no change required** — this is a body field on
+  the existing `/purchase-orders` CRUD + `/purchase-orders/{id}/pdf` routes; business-core owns
+  reading/writing the column and rendering the configurable table in `po_pdf.py`. **NOT yet applied
+  to AWS** — apply 043 via psql over the SSM tunnel (requires 039 already applied, which it is).
 
 - [x] **DB migration 042 — procurement.purchase_orders.include_terms toggle (2026-07-20):**
   `042_add_procurement_po_include_terms.sql` adds `include_terms BOOLEAN NOT NULL DEFAULT TRUE`
