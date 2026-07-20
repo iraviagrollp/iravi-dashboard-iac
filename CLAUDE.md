@@ -76,7 +76,8 @@ D:\Projects\Iravi\
 │   │       ├── 038_add_procurement_signatory_authority_screen.sql     ← seeds procurement.signatory_authorities screen
 │   │       ├── 039_create_procurement_purchase_orders.sql             ← procurement.purchase_orders (Bulk PO)
 │   │       ├── 040_add_procurement_purchase_order_screen.sql          ← seeds procurement.purchase_orders screen
-│   │       └── 041_create_procurement_purchase_order_items.sql        ← procurement.purchase_order_items (Job Work multi-row grid)
+│   │       ├── 041_create_procurement_purchase_order_items.sql        ← procurement.purchase_order_items (Job Work multi-row grid)
+│   │       └── 042_add_procurement_po_include_terms.sql               ← procurement.purchase_orders.include_terms toggle
 │   ├── design/                               ← git-ignored (local only)
 │   │   ├── stakeholder-presentation.html
 │   │   ├── system-architecture-diagram.html  ← dark SVG, full four-repo diagram (updated 2026-06-25: alerts, SES, mig 013-014, new API routes)
@@ -451,6 +452,16 @@ Expense Tracker / Finance Overview) was superseded; Expenses remains a phase 3+ 
 ---
 
 ## What Is Built
+
+- [x] **DB migration 042 — procurement.purchase_orders.include_terms toggle (2026-07-20):**
+  `042_add_procurement_po_include_terms.sql` adds `include_terms BOOLEAN NOT NULL DEFAULT TRUE`
+  (additive `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`) to `procurement.purchase_orders`. Backs a
+  per-PO toggle to include/exclude the Terms & Conditions section on the generated PO PDF, for both
+  the `BULK` and `JOB_WORK` PO types (both render off the same `purchase_orders` row).
+  `DEFAULT TRUE` preserves current behavior — existing rows keep showing T&C. **Terraform: no change
+  required** — this is a body field on the existing `/purchase-orders` CRUD + `/purchase-orders/{id}/pdf`
+  routes; business-core owns reading/writing the new column and rendering it in `po_pdf.py`. **NOT yet
+  applied to AWS** — apply 042 via psql over the SSM tunnel (requires 039 already applied, which it is).
 
 - [x] **DB migration 041 — procurement.purchase_order_items (Job Work multi-row grid, 2026-07-20):**
   `041_create_procurement_purchase_order_items.sql` creates `procurement.purchase_order_items`
