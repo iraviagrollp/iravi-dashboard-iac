@@ -75,7 +75,8 @@ D:\Projects\Iravi\
 │   │       ├── 037_create_procurement_signatory_authorities.sql       ← procurement.signatory_authorities
 │   │       ├── 038_add_procurement_signatory_authority_screen.sql     ← seeds procurement.signatory_authorities screen
 │   │       ├── 039_create_procurement_purchase_orders.sql             ← procurement.purchase_orders (Bulk PO)
-│   │       └── 040_add_procurement_purchase_order_screen.sql          ← seeds procurement.purchase_orders screen
+│   │       ├── 040_add_procurement_purchase_order_screen.sql          ← seeds procurement.purchase_orders screen
+│   │       └── 041_create_procurement_purchase_order_items.sql        ← procurement.purchase_order_items (Job Work multi-row grid)
 │   ├── design/                               ← git-ignored (local only)
 │   │   ├── stakeholder-presentation.html
 │   │   ├── system-architecture-diagram.html  ← dark SVG, full four-repo diagram (updated 2026-06-25: alerts, SES, mig 013-014, new API routes)
@@ -450,6 +451,27 @@ Expense Tracker / Finance Overview) was superseded; Expenses remains a phase 3+ 
 ---
 
 ## What Is Built
+
+- [x] **DB migration 041 — procurement.purchase_order_items (Job Work multi-row grid, 2026-07-20):**
+  `041_create_procurement_purchase_order_items.sql` creates `procurement.purchase_order_items`
+  (BIGSERIAL id; `po_id` BIGINT FK → `purchase_orders(id)` ON DELETE CASCADE; `sl_no` INTEGER,
+  unique per `po_id`; `technical_id` FK RESTRICT; nullable `packaging_id` FK RESTRICT; `quantity`
+  NUMERIC(16,2) stored in the PO's base unit (KGS/LTRS, same convention as
+  `purchase_orders.quantity_unit`); `rate`/`amount` NUMERIC; `created_at`). Backs the new "Job Work"
+  PO type (`purchase_orders.po_type`), which has a multi-row particulars grid instead of the
+  existing single-line Bulk PO columns. No `updated_at` trigger — rows are meant to be replaced
+  wholesale (delete + reinsert) whenever a PO's grid is edited, not updated in place. **Terraform:
+  no change required** — the existing `/purchase-orders` CRUD + `/purchase-orders/{id}/pdf` routes
+  in `terraform/environments/production/procurement/main.tf` (`local.procurement_routes`) already
+  serve both PO types since `po_type` is just a request-body field, and Job Work reuses the same
+  `procurement.purchase_orders` RBAC screen — no new Lambda/route/screen added. **Gap noted (not
+  actioned — outside this task's scope):** the route list has no explicit `GET
+  /purchase-orders/{id}` single-item fetch route today — only `GET /purchase-orders` (list), `POST`,
+  `PUT/{id}`, `DELETE/{id}`, and `GET /{id}/pdf`. If the Job Work edit screen needs to fetch one PO's
+  full line-item grid and the list endpoint doesn't already return items nested, business-core/iac
+  will need to add that route — flagged for the orchestrator, not added speculatively here.
+  **NOT yet applied to AWS** — apply 041 via psql over the SSM tunnel (requires 039, 026, 035 already
+  applied, which they are).
 
 - [x] **Procurement Purchase Order (Bulk) + PDF export (2026-07-16):**
   `039_create_procurement_purchase_orders.sql` creates `procurement.purchase_orders` (per-day PO
