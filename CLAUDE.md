@@ -77,7 +77,11 @@ D:\Projects\Iravi\
 │   │       ├── 039_create_procurement_purchase_orders.sql             ← procurement.purchase_orders (Bulk PO)
 │   │       ├── 040_add_procurement_purchase_order_screen.sql          ← seeds procurement.purchase_orders screen
 │   │       ├── 041_create_procurement_purchase_order_items.sql        ← procurement.purchase_order_items (Job Work multi-row grid)
-│   │       └── 042_add_procurement_po_include_terms.sql               ← procurement.purchase_orders.include_terms toggle
+│   │       ├── 042_add_procurement_po_include_terms.sql               ← procurement.purchase_orders.include_terms toggle
+│   │       ├── 043_add_procurement_po_generic_config.sql              ← procurement.purchase_orders.generic_config (Generic PO type)
+│   │       ├── 044_relax_procurement_po_not_null_for_generic.sql      ← drops NOT NULL on 5 purchase_orders columns for Generic PO type
+│   │       ├── 045_seed_supplier_companies_from_pos.sql               ← idempotent upsert of 14 companies extracted from the IAL PO PDFs
+│   │       └── 046_seed_packaging_config_from_stock.sql               ← 3-table seed (technicals + packaging_meta + packagings) from Opening Stock 20-Jul-2026.pdf
 │   ├── design/                               ← git-ignored (local only)
 │   │   ├── stakeholder-presentation.html
 │   │   ├── system-architecture-diagram.html  ← dark SVG, full four-repo diagram (updated 2026-06-25: alerts, SES, mig 013-014, new API routes)
@@ -452,6 +456,99 @@ Expense Tracker / Finance Overview) was superseded; Expenses remains a phase 3+ 
 ---
 
 ## What Is Built
+
+- [x] **DB migration 046 — seed procurement packaging config from Opening Stock 20-Jul-2026.pdf
+  (2026-07-20):** `046_seed_packaging_config_from_stock.sql` is a THREE-TABLE idempotent seed —
+  a "packaging configuration" ties a brand+technical (`procurement.technicals`) to a pack size
+  (`procurement.packaging_meta`) via the join table `procurement.packagings`. Source PDF is the
+  4-page "STOCK AT GODOWN" report (41 numbered brand entries), grouped by brand with a wrapped
+  technical/active-ingredient name and one PACKING/AP/TS row per pack size — that grouping is
+  how brand→technical was derived. Each PACKING cell (e.g. `10X1 KG`) has its leading outer
+  case-pack count (`10X`) and the AP/TS stock-quantity columns IGNORED; only the per-unit size
+  after the `X` is captured. `pdftoppm`/poppler is not installed in this environment, but this
+  particular PDF **has a real text layer** (unlike the scanned PO PDFs from migration 045), so
+  it was parsed via PyMuPDF (`fitz`) word-level extraction (`get_text("words")`) with x-position
+  column classification, not the image-extraction workaround — needed because
+  `get_text("text")`'s default line-merging interleaved the wrapped technical-name column with
+  the packing column on several rows (two genuine source-PDF text-run merges were fixed via a
+  regex split: GULFPLUS's `...13.5 % W40X250 ML` and NOMA's `...0.9% W/W SC40X250 ML`, where the
+  technical name and next PACKING value are touching in the same font span with no space).
+  38 of the 41 report brands matched an EXISTING `technicals.brand_name` exactly (reused,
+  no new row); `GUNSHOT`/`I-TAF PLUS` were treated as spacing variants of the existing `GUN
+  SHOT`/`I-TAFPLUS` rows (reused). Two genuinely new brands got new `technicals` rows —
+  `HUNTER` (`EMAMECTIN BENZOATE 5% SG`) and `GULFONID` (`GLUFOSINATE AMMONIUM 13.5 % W/W SL`) —
+  neither collides with an existing `technical_name` string. **`GROMAX` (brand #10) was
+  DELIBERATELY EXCLUDED**: its derived technical name (`GIBBERELLIC ACID 0.001% L`) is a
+  byte-for-byte match of the technical_name already owned by existing brand `CHIEF`
+  (migration 028); since `technical_name` is `procurement.technicals`' only unique constraint,
+  inserting a second row for GROMAX with that exact string would silently no-op under `ON
+  CONFLICT DO NOTHING`, orphaning GROMAX rather than erroring — flagged instead of guessed.
+  Two new `packaging_meta` rows were added (`('KG','8 GM (P)')`, `('KG','8 GM (T)')`, IMIX's
+  barcoded pouch/tin variants); every other pack size in this report already existed from
+  migration 034's `Opening Stock 15-Jul-2026.pdf` seed. 110 `packagings` link rows across the
+  40 usable brands. Conflict targets: `technicals(technical_name)` (mig 026),
+  `packaging_meta(unit_type, label)` (mig 033), `packagings(technical_id, packaging_meta_id)`
+  (mig 035) — no `DELETE`/`TRUNCATE`. **Terraform: no change required** — pure DML seed.
+  **NOT yet applied to AWS** — apply 046 via psql over the SSM tunnel (requires 026, 028, 033,
+  034, 035 already applied, which they are).
+
+- [x] **DB migration 045 — seed procurement.supplier_companies from the IAL PO PDFs (2026-07-20):**
+  `045_seed_supplier_companies_from_pos.sql` idempotently upserts 14 distinct companies
+  (`company_name`, `address_line1/2/3`, `state`, `pin_code`, `gstin`, `is_active`) extracted by
+  reading every "IAL PO for ..." / `IAL_2627_*` Purchase Order PDF under `design/` and
+  `design/POs/**` (26 PDF files → 24 distinct PO numbers after de-duplicating regenerated
+  copies of the same PO). Covers vendors/suppliers (e.g. `DHANA CROP SCIENCES LIMITED`,
+  `WILLOWOOD CHEMICALS LIMITED`, `TRUUCHEM TECHNOLOGIES PRIVATE LIMITED`, `SUNITHA GRAPHICS`,
+  `B B POLYMERS`, `SREE SAI SINDHURA POLY PRODUCTS`, `SRI GAYATHRI PACKAGING INDUSTRIES`,
+  `JU AGRI SCIENCES PRIVATE LIMITED`, `SMR AGRO`, `DHARMAJ CROP GUARD LIMITED`), ship-to
+  consignees (`PRISTINE AGRO LIMITED`, `MERCO ENERGY SOLUTIONS (P) LTD.`, `UNIQUE AGRICARE`),
+  and `IRAVI AGRO LIFE LLP` itself (the recurring Bill-To party). Conflict key is the table's
+  only unique constraint, `company_name` — additive alongside the short-code company rows
+  already seeded by migration 028 (`WILLOWOOD`, `DHARMAJ`, `JU`, `JU AGRI SCIENCES PVT LTD`,
+  `TRUUCHEM TECHNOLOGIES PVT LTD`, `WILLIWOOD CHEMICALS LTD` [sic]) since the full legal names
+  are different strings; reconciling the two naming schemes is a follow-up data-hygiene task,
+  not done here. Most of the corpus's `IRAVI AGRO LIFE LLP` Bill-To blocks use an older address
+  (Auto Nagar, Hayath Nagar, Hyderabad - 500070, GSTIN `36AALFI2946J1Z0`); the 3 newest,
+  app-generated POs (`IAL/2627/1`, `/2`, `/3`, dated 17-20 July 2026, rendered by the
+  procurement app's own PDF generator) use a different address (BVR Plaza, Kukatpally,
+  Hyderabad - 500072, GSTIN `37AALFI2946J1ZY`) — the migration seeds the latter as the
+  authoritative row. One vendor (`DHARMAJ CROP GUARD LIMITED`) had a blank GSTIN field on its
+  source PO — seeded with `gstin = NULL`. `pdftoppm`/poppler is not installed in this
+  environment, so most of the source PDFs (scanned/image-only) were read by extracting the
+  embedded JPEG via PyMuPDF (`fitz`) and viewing it directly rather than via the Read tool's
+  built-in PDF page renderer; a handful of the newer POs had a real text layer and were read
+  directly. **Terraform: no change required** — pure DML seed. **NOT yet applied to AWS** —
+  apply 045 via psql over the SSM tunnel (requires 026 and 032 already applied, which they are).
+
+- [x] **DB migration 044 — relax NOT NULL on 5 procurement.purchase_orders columns for GENERIC PO type (2026-07-20):**
+  `044_relax_procurement_po_not_null_for_generic.sql` drops the `NOT NULL` constraint (added by
+  migration 039, before the `GENERIC` PO type existed) on `product_technical_id`, `quantity`,
+  `quantity_unit`, `rate`, `gst_rate` in `procurement.purchase_orders`. The `GENERIC` PO type
+  (migration 043's `generic_config` JSONB column) stores its data as a free-form table +
+  subject/body rather than populating these 5 relational columns, so inserting/updating a
+  `GENERIC` row with them left `NULL` previously raised a `NotNullViolation`. `BULK` and
+  `JOB_WORK` rows are unaffected — they continue to populate all 5 columns exactly as before;
+  per-`po_type` required-field validation is enforced at the application layer (the
+  `procurement_api` Lambda handler), so app-level data integrity is preserved despite the
+  relaxed DB constraint. `rate`/`gst_rate` keep their existing `DEFAULT` (0 / 18) — dropping
+  `NOT NULL` doesn't remove a column's `DEFAULT`. `ALTER COLUMN ... DROP NOT NULL` is
+  idempotent (safe to re-run), so no `IF EXISTS` guard is needed. **Terraform: no change
+  required** — pure DB constraint relaxation; the procurement API Lambda already handles
+  `GENERIC` request bodies from migration 043. **NOT yet applied to AWS** — apply 044 via
+  psql over the SSM tunnel (requires 039 already applied, which it is).
+
+- [x] **DB migration 043 — procurement.purchase_orders.generic_config (Generic PO type, 2026-07-20):**
+  `043_add_procurement_po_generic_config.sql` adds a nullable `generic_config JSONB` column
+  (additive `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`) to `procurement.purchase_orders`. Backs a
+  third PO type — `po_type = 'GENERIC'` — alongside the existing `BULK` (single-line columns) and
+  `JOB_WORK` (`procurement.purchase_order_items` multi-row grid) types. Unlike those two, GENERIC POs
+  carry a free-form configurable table plus a subject/body, all stored as one JSONB blob rather than
+  relational columns: `{ "subject": "...", "body": "...", "columns": ["S No.", "Particulars", ...],
+  "rows": [["1", "...", ...], ...] }`. No default — the column stays `NULL` for `BULK`/`JOB_WORK`
+  rows; only `GENERIC` rows populate it. **Terraform: no change required** — this is a body field on
+  the existing `/purchase-orders` CRUD + `/purchase-orders/{id}/pdf` routes; business-core owns
+  reading/writing the column and rendering the configurable table in `po_pdf.py`. **NOT yet applied
+  to AWS** — apply 043 via psql over the SSM tunnel (requires 039 already applied, which it is).
 
 - [x] **DB migration 042 — procurement.purchase_orders.include_terms toggle (2026-07-20):**
   `042_add_procurement_po_include_terms.sql` adds `include_terms BOOLEAN NOT NULL DEFAULT TRUE`
