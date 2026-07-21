@@ -107,7 +107,13 @@ resource "aws_lambda_function" "api" {
   source_code_hash = data.archive_file.api.output_base64sha256
   timeout          = local.api_timeout
   memory_size      = local.api_memory
-  layers           = [aws_lambda_layer_version.api_deps.arn]
+  # api_deps               — psycopg2-binary + redis-py (DB + cache access).
+  # alerts_evaluator_deps  — reportlab (shared PDF-generation layer; reused for
+  #   the report-PDF export routes below — no separate build/layer needed).
+  layers = [
+    aws_lambda_layer_version.api_deps.arn,
+    aws_lambda_layer_version.alerts_evaluator_deps.arn,
+  ]
 
   vpc_config {
     subnet_ids         = aws_subnet.private[*].id
@@ -306,6 +312,46 @@ resource "aws_apigatewayv2_route" "reports_monthly_sales" {
 resource "aws_apigatewayv2_route" "reports_monthly_collection" {
   api_id    = aws_apigatewayv2_api.main.id
   route_key = "GET /reports/monthly-collection"
+  target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
+}
+
+# ── Report PDF exports (server-rendered via reportlab) ────────────────────────
+# Same public (non-admin), GET-only access as their sibling data routes above —
+# CORS already covers GET via the existing cors_configuration block.
+
+resource "aws_apigatewayv2_route" "reports_customer_balances_fy_pdf" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "GET /reports/customer-balances-fy/pdf"
+  target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "reports_supplier_balances_fy_pdf" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "GET /reports/supplier-balances-fy/pdf"
+  target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "reports_monthly_sales_pdf" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "GET /reports/monthly-sales/pdf"
+  target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "reports_monthly_collection_pdf" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "GET /reports/monthly-collection/pdf"
+  target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "ledger_statement_pdf" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "GET /ledger/statement/pdf"
+  target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "supplier_ledger_statement_pdf" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "GET /supplier-ledger/statement/pdf"
   target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
 }
 

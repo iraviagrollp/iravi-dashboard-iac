@@ -121,7 +121,7 @@ D:\Projects\Iravi\
 │               ├── lambda_etl_supplier_ledger.tf ← Supplier Ledger ETL Lambda (EventBridge trigger on raw/Ledger; read-only S3; upserts supplier_ledger; same source file as etl_customer_ledger but different rows)
 │               ├── lambda_whatsapp_notifier.tf ← WhatsApp notifier Lambda (notifications/pending/*.html)
 │               ├── lambda_redis_updater.tf ← Redis Updater + EventBridge trigger
-│               ├── lambda_api.tf       ← API Lambda + API Gateway HTTP API; RBAC /auth/* + /admin/* routes (incl. POST /admin/cache/flush); CORS GET/POST/PUT/DELETE; GET /reports/customer-balances-fy route added (migration 010); GET /reports/supplier-balances-fy route added (migration 018); GET /reports/monthly-sales route added (migration 019); alerts CRUD routes added to api_rbac_routes (admin-only)
+│               ├── lambda_api.tf       ← API Lambda + API Gateway HTTP API; RBAC /auth/* + /admin/* routes (incl. POST /admin/cache/flush); CORS GET/POST/PUT/DELETE; GET /reports/customer-balances-fy route added (migration 010); GET /reports/supplier-balances-fy route added (migration 018); GET /reports/monthly-sales route added (migration 019); alerts CRUD routes added to api_rbac_routes (admin-only); api Lambda layers = [api_deps, alerts_evaluator_deps (reportlab, reused)] + 6 public report-PDF routes (`/reports/customer-balances-fy/pdf`, `/reports/supplier-balances-fy/pdf`, `/reports/monthly-sales/pdf`, `/reports/monthly-collection/pdf`, `/ledger/statement/pdf`, `/supplier-ledger/statement/pdf`)
 │               ├── ses.tf              ← SES domain identity + DKIM for alerts emails (alerts_domain var); outputs verification token + DKIM CNAMEs
 │               ├── lambda_alerts_evaluator.tf ← Alerts Evaluator Lambda + EventBridge rate(15 min); layers: api_deps (psycopg2) + alerts_evaluator_deps (reportlab — PDF for Monthly Sales email); env: DB_SECRET_ARN, ALERTS_SENDER_EMAIL; IAM: GetSecretValue + ses:SendEmail/SendRawEmail
 │               └── amplify.tf          ← Amplify app env vars (VITE_API_BASE_URL only — dashboard creds removed; now BOOTSTRAP_ADMIN_* on the API Lambda); ONE-TIME import required before first apply
@@ -456,6 +456,31 @@ Expense Tracker / Finance Overview) was superseded; Expenses remains a phase 3+ 
 ---
 
 ## What Is Built
+
+- [x] **Terraform — `lambda_api.tf` updated (2026-07-20) — 6 server-side report-PDF routes +
+  reportlab layer on the api Lambda:** `aws_lambda_function.api.layers` now lists TWO layers —
+  `aws_lambda_layer_version.api_deps.arn` (psycopg2 + redis-py, unchanged) **and**
+  `aws_lambda_layer_version.alerts_evaluator_deps.arn` (reportlab; already defined in
+  `lambda_alerts_evaluator.tf` and reused the same way by `procurement_api` — no new layer
+  build/CI step needed). Added 6 new `aws_apigatewayv2_route` resources, following the same
+  explicit per-path pattern and same `aws_apigatewayv2_integration.api_lambda` target as the
+  existing public `reports_*` GET data routes (not added to `api_rbac_routes` — these are
+  public/non-admin, matching their sibling data routes; CORS already covers GET via the
+  existing `cors_configuration` block, no CORS change needed):
+  `reports_customer_balances_fy_pdf` (`GET /reports/customer-balances-fy/pdf`),
+  `reports_supplier_balances_fy_pdf` (`GET /reports/supplier-balances-fy/pdf`),
+  `reports_monthly_sales_pdf` (`GET /reports/monthly-sales/pdf`),
+  `reports_monthly_collection_pdf` (`GET /reports/monthly-collection/pdf`),
+  `ledger_statement_pdf` (`GET /ledger/statement/pdf`),
+  `supplier_ledger_statement_pdf` (`GET /supplier-ledger/statement/pdf`).
+  Packaging check: `data.archive_file.api` (source_dir `business-core/lambda/api`) has no
+  `excludes`/allowlist — it zips the whole directory recursively, so the `.py` PDF renderers
+  plus any `.ttf` fonts / `ial-logo.png` the business-core agent adds under that path ship
+  automatically; no packaging change required. `terraform fmt` clean; `terraform validate`
+  passed (an existing `.terraform` init from a prior session was present in this working
+  directory). `terraform plan`/`apply` intentionally NOT run — business-core's handler code +
+  PDF renderers are assumed done but not verified present here; run plan once business-core
+  confirms the code is pushed.
 
 - [x] **DB migration 046 — seed procurement packaging config from Opening Stock 20-Jul-2026.pdf
   (2026-07-20):** `046_seed_packaging_config_from_stock.sql` is a THREE-TABLE idempotent seed —
