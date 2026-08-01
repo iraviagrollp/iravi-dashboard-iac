@@ -20,6 +20,7 @@ Region: `ap-south-1` (Mumbai).
 | Alerts Evaluator Lambda | `iravi-dashboard-alerts-evaluator` — Python 3.12, 256 MB, 300 s; layers: `api_deps` (psycopg2, shared) + `alerts_evaluator_deps` (reportlab — Monthly Sales PDF attachments); EventBridge `rate(15 minutes)` — send time is per-alert (`alerts.schedule_time`, IST); Lambda self-selects which alerts are due each invocation |
 | Alerts API routes | 6 admin-only routes in `api_rbac_routes`: `GET/POST /alerts`, `PUT/DELETE /alerts/{id}`, `GET /alerts/fields`, `POST /alerts/{id}/test` |
 | Report PDF routes | 6 public GET routes (api Lambda; same access as their sibling data routes): `/reports/customer-balances-fy/pdf`, `/reports/supplier-balances-fy/pdf`, `/reports/monthly-sales/pdf`, `/reports/monthly-collection/pdf`, `/ledger/statement/pdf`, `/supplier-ledger/statement/pdf`; api Lambda now carries a second layer, `alerts_evaluator_deps` (reportlab), reused as-is — no new layer/CI build |
+| Stock Expiry routes | 2 public GET routes (api Lambda, explicit per-path like all other routes — no `$default` catch-all): `GET /stocks/expiry`, `GET /stocks/expiry/pdf`; `snapshot_stock` gained an `expiry_date DATE` column that is now part of its uni-temporal natural key (migration 049), RBAC screen `stocks.expiry` seeded by migration 050 |
 | Supplier Ledger Lambda | `iravi-dashboard-etl-supplier-ledger` — Python 3.12, 512 MB, 300 s, own layer (openpyxl/psycopg2); triggered by EventBridge "Object Created" rule on `raw/Ledger` prefix; read-only S3 IAM (GetObject + ListBucket, no Put/Delete); upserts `supplier_ledger` table with uni-temporal milestoning; `eventbridge = true` added to the shared S3 bucket notification to enable this flow |
 | CI/CD | GitHub Actions — fmt + validate on PR (Stage 1); plan + apply coming after AWS account setup |
 | Diagram (SVG) | `design/system-architecture-diagram.html` — dark-theme SVG across all four repos; Alerts subsystem added (cron, evaluator, SES, recipients); DB tables 013–014; API routes; git-ignored, local only |
@@ -175,7 +176,9 @@ IaC/
 │       ├── 016_create_supplier_accounts.sql     ← creates supplier_accounts (uni-temporal milestoned, natural key: name)
 │       ├── 017_create_supplier_ledger.sql       ← creates supplier_ledger (same shape as customer_ledger, uni-temporal milestoned)
 │       ├── 018_add_supplier_balances_fy_screen.sql ← idempotent app_screens seed for 'reports.supplier_balances_fy' (applied)
-│       └── 019_add_monthly_sales_screen.sql        ← idempotent app_screens seed for 'reports.monthly_sales' (applied)
+│       ├── 019_add_monthly_sales_screen.sql        ← idempotent app_screens seed for 'reports.monthly_sales' (applied)
+│       ├── 049_add_expiry_date_to_snapshot_stock.sql ← adds expiry_date to snapshot_stock's natural key (Stock Expiry page)
+│       └── 050_add_stock_expiry_screen.sql           ← idempotent app_screens seed for 'stocks.expiry' (sort_order 41)
 └── terraform/
     ├── bootstrap/                  ← Run ONCE first — creates remote state storage
     │   └── main.tf
@@ -496,6 +499,31 @@ psql "host=localhost port=5432 dbname=iravi_dashboard user=dashboard_admin passw
 ```
 After applying, an admin must map the `reports.monthly_sales` screen to the appropriate roles via
 the Access Control screen in the dashboard UI.
+
+**Migration 049 — `snapshot_stock.expiry_date` (Stock Expiry page):**
+Adds nullable `expiry_date DATE` to `snapshot_stock` and folds it into the uni-temporal natural
+key: `uix_stock_active` is dropped and recreated over the existing key columns plus
+`COALESCE(expiry_date, '9999-12-31'::date)` (Postgres treats bare NULLs as distinct in a unique
+index, so the sentinel date is required to keep de-duplicating no-expiry rows). Also adds
+`idx_stock_expiry_date`. Fully idempotent — safe to re-run. Apply AFTER `terraform apply` has
+provisioned the new `GET /stocks/expiry` / `GET /stocks/expiry/pdf` routes AND after business-core
+has deployed the updated `etl_stocks` (writes `expiry_date`), `api` (`/stocks/expiry*` handlers,
+re-aggregated `/stocks/current`), and `redis_updater` code. Apply over the SSM tunnel:
+```bash
+psql "host=localhost port=5432 dbname=iravi_dashboard user=dashboard_admin password='<password>' sslmode=require" \
+     -f db/migrations/049_add_expiry_date_to_snapshot_stock.sql
+```
+
+**Migration 050 — `app_screens` seed for Stock Expiry:**
+Idempotently inserts screen key `stocks.expiry` (label "Stock Expiry", sort_order 41 — immediately
+after `stocks` at 40) into `app_screens` using `ON CONFLICT (screen_key) DO NOTHING`. Apply AFTER
+migration 049 and after the `GET /stocks/expiry` route/handler are live. Apply over the SSM tunnel:
+```bash
+psql "host=localhost port=5432 dbname=iravi_dashboard user=dashboard_admin password='<password>' sslmode=require" \
+     -f db/migrations/050_add_stock_expiry_screen.sql
+```
+After applying, an admin must map the `stocks.expiry` screen to the appropriate roles via the
+Access Control screen in the dashboard UI.
 
 ---
 

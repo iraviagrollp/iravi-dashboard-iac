@@ -347,20 +347,26 @@ CREATE TABLE snapshot_stock (
     entry_date              DATE            NOT NULL,
     rate                    NUMERIC(12, 4),             -- purchase price; NULL when rates file absent
     stock_valuation         NUMERIC(15, 2),             -- available_nos × rate; NULL when rate NULL
+    expiry_date             DATE,                       -- trailing "ExpiryDate" column (migration 049); NULL = no expiry tracked; part of the natural key so stock is tracked one row per distinct expiry date
     in_z                    TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     out_z                   TIMESTAMPTZ                 -- NULL = current record
 );
 
 -- Only one active version per natural key at a time.
+-- expiry_date is COALESCEd to a sentinel date because Postgres treats NULLs as
+-- distinct in unique indexes — without it, multiple no-expiry rows for the same
+-- key would not be de-duplicated (migration 049).
 CREATE UNIQUE INDEX uix_stock_active
     ON snapshot_stock (brand, technical, packing_size, packing_configuration,
-                       branch, special_packing_mention, entry_date)
+                       branch, special_packing_mention, entry_date,
+                       COALESCE(expiry_date, '9999-12-31'::date))
     WHERE out_z IS NULL;
 
-CREATE INDEX idx_stock_entry_date ON snapshot_stock (entry_date);
-CREATE INDEX idx_stock_brand      ON snapshot_stock (brand);
-CREATE INDEX idx_stock_branch     ON snapshot_stock (branch);
-CREATE INDEX idx_stock_out_z      ON snapshot_stock (out_z) WHERE out_z IS NULL;
+CREATE INDEX idx_stock_entry_date  ON snapshot_stock (entry_date);
+CREATE INDEX idx_stock_brand       ON snapshot_stock (brand);
+CREATE INDEX idx_stock_branch      ON snapshot_stock (branch);
+CREATE INDEX idx_stock_out_z       ON snapshot_stock (out_z) WHERE out_z IS NULL;
+CREATE INDEX idx_stock_expiry_date ON snapshot_stock (expiry_date);
 
 
 -- Margin 03-04 sheet from Stocks.xlsx.
