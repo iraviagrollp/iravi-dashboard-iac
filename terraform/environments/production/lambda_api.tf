@@ -183,6 +183,12 @@ resource "aws_apigatewayv2_route" "stocks_current" {
   target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
 }
 
+resource "aws_apigatewayv2_route" "stocks_expiry" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "GET /stocks/expiry"
+  target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
+}
+
 resource "aws_apigatewayv2_route" "ledger_range" {
   api_id    = aws_apigatewayv2_api.main.id
   route_key = "GET /ledger/range"
@@ -352,6 +358,12 @@ resource "aws_apigatewayv2_route" "ledger_statement_pdf" {
 resource "aws_apigatewayv2_route" "supplier_ledger_statement_pdf" {
   api_id    = aws_apigatewayv2_api.main.id
   route_key = "GET /supplier-ledger/statement/pdf"
+  target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "stocks_expiry_pdf" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "GET /stocks/expiry/pdf"
   target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
 }
 

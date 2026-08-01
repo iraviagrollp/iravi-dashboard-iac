@@ -81,7 +81,9 @@ D:\Projects\Iravi\
 │   │       ├── 043_add_procurement_po_generic_config.sql              ← procurement.purchase_orders.generic_config (Generic PO type)
 │   │       ├── 044_relax_procurement_po_not_null_for_generic.sql      ← drops NOT NULL on 5 purchase_orders columns for Generic PO type
 │   │       ├── 045_seed_supplier_companies_from_pos.sql               ← idempotent upsert of 14 companies extracted from the IAL PO PDFs
-│   │       └── 046_seed_packaging_config_from_stock.sql               ← 3-table seed (technicals + packaging_meta + packagings) from Opening Stock 20-Jul-2026.pdf
+│   │       ├── 046_seed_packaging_config_from_stock.sql               ← 3-table seed (technicals + packaging_meta + packagings) from Opening Stock 20-Jul-2026.pdf
+│   │       ├── 047_add_net_working_capital_screen.sql                 ← seeds reports.net_working_capital screen (sort_order 96)
+│   │       └── 048_add_financial_flow_screen.sql                      ← seeds reports.financial_flow screen (sort_order 97)
 │   ├── design/                               ← git-ignored (local only)
 │   │   ├── stakeholder-presentation.html
 │   │   ├── system-architecture-diagram.html  ← dark SVG, full four-repo diagram (updated 2026-06-25: alerts, SES, mig 013-014, new API routes)
@@ -435,7 +437,7 @@ RBAC is **not** Cognito-based (Cognito on API Gateway remains future phase 3). R
 access live in Postgres and are managed via the `/admin/*` API:
 
 - Tables (migration `009_create_rbac.sql`): `app_users`, `app_roles`, `app_role_screens`, `app_screens`
-  (later migrations `010`/`018`/`019` seed the `reports.*` screen keys).
+  (later migrations `010`/`018`/`019`/`047`/`048` seed the `reports.*` screen keys).
 - Auth: `business-core/lambda/api/auth.py` — stdlib PBKDF2 hashing + HS256 JWT; signing key in Secrets
   Manager `iravi/dashboard/jwt`.
 - Roles are **user-defined** (created in the Access Control UI), not a fixed Admin/Finance/Operations/Viewer
@@ -456,6 +458,37 @@ Expense Tracker / Finance Overview) was superseded; Expenses remains a phase 3+ 
 ---
 
 ## What Is Built
+
+- [x] **DB migrations 049/050 + `lambda_api.tf` routes — Stock Expiry page (2026-08-01):**
+  Upstream stock export (`RGF Current Stock Balances`) gained a 44th trailing column,
+  `ExpiryDate` (`DD-MM-YYYY HH:MM:SS`); reference file `design/StockReport_20260801_084358.csv`.
+  Business decision: stock is now tracked at **one row per distinct expiry date**, so
+  `expiry_date` joins `snapshot_stock`'s uni-temporal natural key.
+  `049_add_expiry_date_to_snapshot_stock.sql` adds nullable `expiry_date DATE`, drops/recreates
+  the partial unique index `uix_stock_active` to key on
+  `COALESCE(expiry_date, '9999-12-31'::date)` (bare NULLs are distinct in a unique index and
+  would stop de-duplicating no-expiry rows), and adds `idx_stock_expiry_date`. Fully idempotent
+  (`ADD COLUMN IF NOT EXISTS` / `DROP INDEX IF EXISTS` / `CREATE INDEX IF NOT EXISTS`).
+  `050_add_stock_expiry_screen.sql` seeds RBAC screen `stocks.expiry` (label "Stock Expiry",
+  `sort_order = 41` — immediately after `stocks` at 40, before `customers` at 50), mirroring
+  migration 010's pattern. `db/schema.sql`'s `snapshot_stock` block updated to match (column +
+  updated `uix_stock_active` + new index) so the canonical schema stays in sync with migration 049.
+  **Terraform (`lambda_api.tf`):** routes are declared explicitly per path (no `$default`
+  catch-all), so two new `aws_apigatewayv2_route` resources were added — `stocks_expiry`
+  (`GET /stocks/expiry`, grouped with the other `/stocks/*` data routes) and `stocks_expiry_pdf`
+  (`GET /stocks/expiry/pdf`, grouped with the other `*/pdf` routes, same integration target,
+  same public/non-admin access as its sibling data route — not added to `api_rbac_routes`). The
+  existing `*/pdf` routes need no binary-media-type or payload-format config beyond what's already
+  there: `aws_apigatewayv2_integration.api_lambda` is `payload_format_version = "2.0"` AWS_PROXY,
+  and HTTP API v2 auto-handles a Lambda proxy response's `isBase64Encoded` flag — so the new PDF
+  route was made an exact copy of that pattern, nothing else to replicate. `terraform fmt` clean
+  (no diff); `terraform validate` passed against a pre-existing `.terraform` init in this working
+  directory. **`terraform plan`/`apply` intentionally NOT run** — a parallel business-core agent
+  is updating `etl_stocks` (writes `expiry_date`), the `api` Lambda (`GET /stocks/expiry`,
+  `GET /stocks/expiry/pdf`, re-aggregated `/stocks/current`), and `redis_updater`; run plan once
+  that code is confirmed pushed. **NOT yet applied to AWS** — apply 049 → 050 via psql over the
+  SSM tunnel (049 requires no prior new migration; run in numeric order); admins then grant
+  `stocks.expiry` to roles in Access Control.
 
 - [x] **Terraform — `lambda_api.tf` updated (2026-07-20) — 6 server-side report-PDF routes +
   reportlab layer on the api Lambda:** `aws_lambda_function.api.layers` now lists TWO layers —
