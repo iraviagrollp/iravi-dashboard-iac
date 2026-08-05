@@ -459,6 +459,42 @@ Expense Tracker / Finance Overview) was superseded; Expenses remains a phase 3+ 
 
 ## What Is Built
 
+- [x] **DB migration 051 + `lambda_api.tf` routes — 6 new PDF/PDC endpoints, Issued PDC screen
+  (2026-08-05):** business-core added 6 new GET endpoints to the main `api` Lambda handler:
+  `GET /sales/pdf`, `GET /purchases/pdf`, `GET /reports/customer-aging/pdf`,
+  `GET /reports/supplier-aging/pdf` (server-rendered PDF exports, sibling pattern to the existing
+  `*/pdf` routes — reuse the `alerts_evaluator_deps` reportlab layer already attached to the api
+  Lambda, no packaging change), and `GET /pdc` / `GET /pdc/pdf` (new read-only Issued PDC page,
+  reading `procurement.pdc` + `procurement.supplier_companies` + `procurement.technicals` — same
+  Postgres DB, different schema, from the MAIN dashboard api Lambda rather than the procurement
+  API Lambda). Added one `aws_apigatewayv2_route` resource per endpoint in `lambda_api.tf`
+  (`sales_pdf`, `purchases_pdf`, `reports_customer_aging_pdf`, `reports_supplier_aging_pdf`, `pdc`,
+  `pdc_pdf`), grouped after `stocks_expiry_pdf` and before `notify`, following the exact existing
+  per-path `aws_apigatewayv2_route` pattern (same `aws_apigatewayv2_integration.api_lambda`
+  target); none added to `api_rbac_routes` — public/non-admin GET, matching their sibling data
+  routes. No CORS change needed (existing `cors_configuration` block already allows GET). No new
+  Lambda, no new layer — additive routes on the existing single-Lambda proxy integration.
+  `051_add_issued_pdc_screen.sql` seeds RBAC screen `suppliers.issued_pdc` (label "Issued PDC",
+  `sort_order = 95` — after `supplier_balances` at 93 and `reports.supplier_ledger_statement` at
+  94, keeping the Suppliers-section screens grouped), same idempotent `ON CONFLICT (screen_key)
+  DO NOTHING` shape as migrations 010/018/019/020/021/047/048/050; only inserts into
+  `app_screens` (no role grant — 050 and its siblings don't auto-grant either). **Confirmed same
+  DB credentials for Task 3:** both the main `api` Lambda (`lambda_api.tf`,
+  `DB_SECRET_ARN = aws_secretsmanager_secret.db.arn`) and the procurement API Lambda
+  (`procurement.tf` → `module.procurement` → `procurement/main.tf`,
+  `DB_SECRET_ARN = var.db_secret_arn` fed from the identical
+  `aws_secretsmanager_secret.db.arn`) reference the exact same Secrets Manager secret resource —
+  same host/dbname/username/password JSON body, i.e. the same Postgres role connects to both
+  schemas. No GRANT migration needed; business-core's conclusion is correct. `terraform fmt`
+  clean (no diff on `lambda_api.tf`); `terraform validate` passed against a pre-existing
+  `.terraform` init in this working directory. **`terraform plan`/`apply` intentionally NOT
+  run** — plan/apply happens via the GitHub Actions pipeline on merge; run once business-core's
+  handler code for these 6 endpoints is confirmed pushed (Terraform's `archive_file` zips
+  `business-core/lambda/api/` as-is, no allowlist, so new handler code ships automatically once
+  present — nothing to verify on the Terraform side beyond the route wiring). **NOT yet applied
+  to AWS** — apply migration 051 via psql over the SSM tunnel (idempotent, no ordering dependency
+  beyond running after 050); admins then grant `suppliers.issued_pdc` to roles in Access Control.
+
 - [x] **DB migrations 049/050 + `lambda_api.tf` routes — Stock Expiry page (2026-08-01):**
   Upstream stock export (`RGF Current Stock Balances`) gained a 44th trailing column,
   `ExpiryDate` (`DD-MM-YYYY HH:MM:SS`); reference file `design/StockReport_20260801_084358.csv`.

@@ -21,6 +21,7 @@ Region: `ap-south-1` (Mumbai).
 | Alerts API routes | 6 admin-only routes in `api_rbac_routes`: `GET/POST /alerts`, `PUT/DELETE /alerts/{id}`, `GET /alerts/fields`, `POST /alerts/{id}/test` |
 | Report PDF routes | 6 public GET routes (api Lambda; same access as their sibling data routes): `/reports/customer-balances-fy/pdf`, `/reports/supplier-balances-fy/pdf`, `/reports/monthly-sales/pdf`, `/reports/monthly-collection/pdf`, `/ledger/statement/pdf`, `/supplier-ledger/statement/pdf`; api Lambda now carries a second layer, `alerts_evaluator_deps` (reportlab), reused as-is — no new layer/CI build |
 | Stock Expiry routes | 2 public GET routes (api Lambda, explicit per-path like all other routes — no `$default` catch-all): `GET /stocks/expiry`, `GET /stocks/expiry/pdf`; `snapshot_stock` gained an `expiry_date DATE` column that is now part of its uni-temporal natural key (migration 049), RBAC screen `stocks.expiry` seeded by migration 050 |
+| Sales/Purchases/Aging/PDC PDF + Issued PDC routes | 6 public GET routes added to the api Lambda (same explicit per-path pattern, no `$default` catch-all, no CORS change — existing `cors_configuration` already covers GET): `GET /sales/pdf`, `GET /purchases/pdf`, `GET /reports/customer-aging/pdf`, `GET /reports/supplier-aging/pdf`, `GET /pdc`, `GET /pdc/pdf`; `/pdc*` read from the `procurement.*` schema via the same DB secret/credentials as the main api Lambda (see Task 3 confirmation below); RBAC screen `suppliers.issued_pdc` seeded by migration 051 |
 | Supplier Ledger Lambda | `iravi-dashboard-etl-supplier-ledger` — Python 3.12, 512 MB, 300 s, own layer (openpyxl/psycopg2); triggered by EventBridge "Object Created" rule on `raw/Ledger` prefix; read-only S3 IAM (GetObject + ListBucket, no Put/Delete); upserts `supplier_ledger` table with uni-temporal milestoning; `eventbridge = true` added to the shared S3 bucket notification to enable this flow |
 | CI/CD | GitHub Actions — fmt + validate on PR (Stage 1); plan + apply coming after AWS account setup |
 | Diagram (SVG) | `design/system-architecture-diagram.html` — dark-theme SVG across all four repos; Alerts subsystem added (cron, evaluator, SES, recipients); DB tables 013–014; API routes; git-ignored, local only |
@@ -178,7 +179,8 @@ IaC/
 │       ├── 018_add_supplier_balances_fy_screen.sql ← idempotent app_screens seed for 'reports.supplier_balances_fy' (applied)
 │       ├── 019_add_monthly_sales_screen.sql        ← idempotent app_screens seed for 'reports.monthly_sales' (applied)
 │       ├── 049_add_expiry_date_to_snapshot_stock.sql ← adds expiry_date to snapshot_stock's natural key (Stock Expiry page)
-│       └── 050_add_stock_expiry_screen.sql           ← idempotent app_screens seed for 'stocks.expiry' (sort_order 41)
+│       ├── 050_add_stock_expiry_screen.sql           ← idempotent app_screens seed for 'stocks.expiry' (sort_order 41)
+│       └── 051_add_issued_pdc_screen.sql             ← idempotent app_screens seed for 'suppliers.issued_pdc' (sort_order 95)
 └── terraform/
     ├── bootstrap/                  ← Run ONCE first — creates remote state storage
     │   └── main.tf
@@ -524,6 +526,23 @@ psql "host=localhost port=5432 dbname=iravi_dashboard user=dashboard_admin passw
 ```
 After applying, an admin must map the `stocks.expiry` screen to the appropriate roles via the
 Access Control screen in the dashboard UI.
+
+**Migration 051 — `app_screens` seed for Issued PDC:**
+Idempotently inserts screen key `suppliers.issued_pdc` (label "Issued PDC", sort_order 95 — after
+`supplier_balances` at 93 and `reports.supplier_ledger_statement` at 94) into `app_screens` using
+`ON CONFLICT (screen_key) DO NOTHING`. Backs the read-only Issued PDC page fed by the new
+`GET /pdc` / `GET /pdc/pdf` routes on the main api Lambda (reads `procurement.pdc` +
+`procurement.supplier_companies` + `procurement.technicals` via the same DB credentials as the
+rest of the api Lambda — no GRANT migration needed; both the `api` Lambda and the procurement API
+Lambda are wired to the identical `aws_secretsmanager_secret.db` ARN, see `secrets.tf` /
+`procurement.tf`). Apply AFTER `terraform apply` has provisioned the new routes AND after
+business-core has deployed the `GET /pdc` / `GET /pdc/pdf` handlers. Apply over the SSM tunnel:
+```bash
+psql "host=localhost port=5432 dbname=iravi_dashboard user=dashboard_admin password='<password>' sslmode=require" \
+     -f db/migrations/051_add_issued_pdc_screen.sql
+```
+After applying, an admin must map the `suppliers.issued_pdc` screen to the appropriate roles via
+the Access Control screen in the dashboard UI.
 
 ---
 
