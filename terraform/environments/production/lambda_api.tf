@@ -464,6 +464,11 @@ locals {
     # CORS already covers GET/POST via the cors_configuration block.
     "GET /config/monthly-collection-targets",
     "POST /config/monthly-collection-targets",
+    # ── Borrowing Rates — admin-only config CRUD ─────────────────────────────
+    # Enforced in the Lambda handler: valid JWT + is_admin required.
+    # CORS already covers GET/POST via the cors_configuration block.
+    "GET /config/borrowing-rates",
+    "POST /config/borrowing-rates",
   ]
 }
 
