@@ -367,6 +367,42 @@ resource "aws_apigatewayv2_route" "stocks_expiry_pdf" {
   target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
 }
 
+resource "aws_apigatewayv2_route" "sales_pdf" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "GET /sales/pdf"
+  target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "purchases_pdf" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "GET /purchases/pdf"
+  target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "reports_customer_aging_pdf" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "GET /reports/customer-aging/pdf"
+  target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "reports_supplier_aging_pdf" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "GET /reports/supplier-aging/pdf"
+  target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "pdc" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "GET /pdc"
+  target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "pdc_pdf" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "GET /pdc/pdf"
+  target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
+}
+
 resource "aws_apigatewayv2_route" "notify" {
   api_id    = aws_apigatewayv2_api.main.id
   route_key = "POST /notify"
