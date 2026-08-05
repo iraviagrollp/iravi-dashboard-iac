@@ -571,7 +571,7 @@ before the reports.* screens") has no integer gap in the existing seed data (the
 screen, `suppliers.issued_pdc`, is already at 95, immediately followed by
 `reports.net_working_capital` at 96), so this seed ties with `reports.net_working_capital` rather
 than renumbering any existing screen. Apply AFTER migration 052 and after the
-`GET /borrowings` / `GET /borrowings/meta` routes/handlers are live:
+`GET /borrowings` / `GET /borrowings/meta` / `GET /borrowings/pdf` routes/handlers are live:
 ```bash
 psql "host=localhost port=5432 dbname=iravi_dashboard user=dashboard_admin password='<password>' sslmode=require" \
      -f db/migrations/053_add_borrowings_screen.sql
