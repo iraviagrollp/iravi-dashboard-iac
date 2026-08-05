@@ -415,6 +415,12 @@ resource "aws_apigatewayv2_route" "borrowings" {
   target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
 }
 
+resource "aws_apigatewayv2_route" "borrowings_pdf" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "GET /borrowings/pdf"
+  target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
+}
+
 resource "aws_apigatewayv2_route" "notify" {
   api_id    = aws_apigatewayv2_api.main.id
   route_key = "POST /notify"

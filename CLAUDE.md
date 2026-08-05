@@ -129,7 +129,7 @@ D:\Projects\Iravi\
 │               ├── lambda_etl_borrowings.tf ← Borrowings ETL Lambda (raw/Borrowings, own openpyxl layer, upserts borrowings)
 │               ├── lambda_whatsapp_notifier.tf ← WhatsApp notifier Lambda (notifications/pending/*.html)
 │               ├── lambda_redis_updater.tf ← Redis Updater + EventBridge trigger
-│               ├── lambda_api.tf       ← API Lambda + API Gateway HTTP API; RBAC /auth/* + /admin/* routes (incl. POST /admin/cache/flush); CORS GET/POST/PUT/DELETE; GET /reports/customer-balances-fy route added (migration 010); GET /reports/supplier-balances-fy route added (migration 018); GET /reports/monthly-sales route added (migration 019); alerts CRUD routes added to api_rbac_routes (admin-only); api Lambda layers = [api_deps, alerts_evaluator_deps (reportlab, reused)] + 6 public report-PDF routes (`/reports/customer-balances-fy/pdf`, `/reports/supplier-balances-fy/pdf`, `/reports/monthly-sales/pdf`, `/reports/monthly-collection/pdf`, `/ledger/statement/pdf`, `/supplier-ledger/statement/pdf`); GET /borrowings/meta + GET /borrowings routes added (migration 052/053, public/non-admin like /ledger)
+│               ├── lambda_api.tf       ← API Lambda + API Gateway HTTP API; RBAC /auth/* + /admin/* routes (incl. POST /admin/cache/flush); CORS GET/POST/PUT/DELETE; GET /reports/customer-balances-fy route added (migration 010); GET /reports/supplier-balances-fy route added (migration 018); GET /reports/monthly-sales route added (migration 019); alerts CRUD routes added to api_rbac_routes (admin-only); api Lambda layers = [api_deps, alerts_evaluator_deps (reportlab, reused)] + 6 public report-PDF routes (`/reports/customer-balances-fy/pdf`, `/reports/supplier-balances-fy/pdf`, `/reports/monthly-sales/pdf`, `/reports/monthly-collection/pdf`, `/ledger/statement/pdf`, `/supplier-ledger/statement/pdf`); GET /borrowings/meta + GET /borrowings + GET /borrowings/pdf routes added (migration 052/053, public/non-admin like /ledger and /ledger/statement/pdf)
 │               ├── ses.tf              ← SES domain identity + DKIM for alerts emails (alerts_domain var); outputs verification token + DKIM CNAMEs
 │               ├── lambda_alerts_evaluator.tf ← Alerts Evaluator Lambda + EventBridge rate(15 min); layers: api_deps (psycopg2) + alerts_evaluator_deps (reportlab — PDF for Monthly Sales email); env: DB_SECRET_ARN, ALERTS_SENDER_EMAIL; IAM: GetSecretValue + ses:SendEmail/SendRawEmail
 │               └── amplify.tf          ← Amplify app env vars (VITE_API_BASE_URL only — dashboard creds removed; now BOOTSTRAP_ADMIN_* on the API Lambda); ONE-TIME import required before first apply
@@ -465,6 +465,26 @@ Expense Tracker / Finance Overview) was superseded; Expenses remains a phase 3+ 
 ---
 
 ## What Is Built
+
+- [x] **`lambda_api.tf` — `GET /borrowings/pdf` route (2026-08-05):** business-core added a
+  server-rendered PDF export for the Borrowings screen in parallel. Added
+  `aws_apigatewayv2_route.borrowings_pdf` (route key `GET /borrowings/pdf`), placed immediately
+  after `aws_apigatewayv2_route.borrowings` (mirrors the `pdc` → `pdc_pdf` adjacency pattern already
+  in the file, rather than the earlier dedicated "Report PDF exports" block, since `/borrowings/pdf`
+  is a sibling of the borrowings feature routes, not a `reports/*` route). Copied the exact shape of
+  every other PDF route (`ledger_statement_pdf`, `sales_pdf`, `pdc_pdf`, etc.) — same
+  `aws_apigatewayv2_integration.api_lambda` target, no extra arguments. Confirmed no PDF route in
+  this file needs anything beyond a plain route resource: no binary media types are configured
+  anywhere in `lambda_api.tf` (API Gateway HTTP API v2 + `AWS_PROXY` returns base64-encoded bodies
+  natively via `isBase64Encoded` in the Lambda proxy response — no gateway-level binary-media-type
+  config exists or is needed), the integration/payload-format-version (`2.0`) is shared by all
+  routes, and none of the other PDF routes have a dedicated integration. Not added to
+  `api_rbac_routes` — matched `borrowings`/`borrowings_meta` (both deliberately excluded, public
+  like `/ledger`) and every other `*/pdf` route in the file (all of which sit outside
+  `api_rbac_routes`, public GET, same CORS as their non-PDF siblings). `terraform fmt` — no diff.
+  `terraform validate` — `Success! The configuration is valid.` `terraform plan`/`apply` not run
+  (per task scope); apply happens via the GitHub Actions pipeline once business-core's handler change
+  merges.
 
 - [x] **DB migrations 052/053 + `lambda_etl_borrowings.tf` + `lambda_api.tf` routes — Borrowings
   (2026-08-05):** New investor/partner borrow-repay ledger. `052_create_borrowings.sql` creates
