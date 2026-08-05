@@ -469,6 +469,37 @@ CREATE INDEX idx_supplier_ledger_account ON supplier_ledger (account_name);
 CREATE INDEX idx_supplier_ledger_out_z   ON supplier_ledger (out_z) WHERE out_z IS NULL;
 
 
+-- Borrowings — tracks money borrowed from / repaid to investors (LLP partners
+-- or external lenders). Sourced from a dedicated "Borrowings" export file
+-- (etl_borrowings Lambda, raw/Borrowings prefix).
+-- debit  = money paid BY the firm TO the investor (repayment of borrowed funds).
+-- credit = money received BY the firm FROM the investor (a new borrowing).
+-- Natural key: (transaction_date, voucher_no, account).
+-- Uni-temporal milestoning: in_z/out_z track versions of the same natural key.
+--   out_z IS NULL  → current (active) record.
+--   out_z IS NOT NULL → superseded; kept for audit history.
+-- (migration 052)
+CREATE TABLE borrowings (
+    id               BIGSERIAL PRIMARY KEY,
+    transaction_date DATE           NOT NULL,
+    voucher_no       TEXT           NOT NULL,
+    transaction_name TEXT,
+    account          TEXT           NOT NULL,
+    debit            NUMERIC(18, 2) NOT NULL DEFAULT 0,
+    credit           NUMERIC(18, 2) NOT NULL DEFAULT 0,
+    in_z             TIMESTAMPTZ    NOT NULL DEFAULT NOW(),
+    out_z            TIMESTAMPTZ                 -- NULL = current record
+);
+
+-- Only one active version per natural key at a time.
+CREATE UNIQUE INDEX uix_borrowings_active
+    ON borrowings (transaction_date, voucher_no, account)
+    WHERE out_z IS NULL;
+
+CREATE INDEX idx_borrowings_account_date ON borrowings (account, transaction_date) WHERE out_z IS NULL;
+CREATE INDEX idx_borrowings_date         ON borrowings (transaction_date) WHERE out_z IS NULL;
+
+
 -- ============================================================
 -- ETL AUDIT
 -- Tracks every pipeline run for alerting and replay purposes.

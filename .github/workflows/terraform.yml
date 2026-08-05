@@ -217,6 +217,15 @@ jobs:
             --platform manylinux2014_x86_64 --implementation cp --python-version 3.12 \
             --only-binary=:all: --upgrade --quiet
 
+      - name: Build etl_borrowings layer
+        run: |
+          mkdir -p terraform/environments/production/.lambda_layers/etl_borrowings/python
+          pip install \
+            -r business-core/lambda/etl_borrowings/requirements.txt \
+            -t terraform/environments/production/.lambda_layers/etl_borrowings/python \
+            --platform manylinux2014_x86_64 --implementation cp --python-version 3.12 \
+            --only-binary=:all: --upgrade --quiet
+
       - name: Build alerts_evaluator_deps layer
         run: |
           mkdir -p terraform/environments/production/.lambda_layers/alerts_evaluator_deps/python
@@ -393,6 +402,15 @@ jobs:
           pip install \
             -r business-core/lambda/etl_supplier_ledger/requirements.txt \
             -t terraform/environments/production/.lambda_layers/etl_supplier_ledger/python \
+            --platform manylinux2014_x86_64 --implementation cp --python-version 3.12 \
+            --only-binary=:all: --upgrade --quiet
+
+      - name: Build etl_borrowings layer
+        run: |
+          mkdir -p terraform/environments/production/.lambda_layers/etl_borrowings/python
+          pip install \
+            -r business-core/lambda/etl_borrowings/requirements.txt \
+            -t terraform/environments/production/.lambda_layers/etl_borrowings/python \
             --platform manylinux2014_x86_64 --implementation cp --python-version 3.12 \
             --only-binary=:all: --upgrade --quiet
 

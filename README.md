@@ -22,6 +22,7 @@ Region: `ap-south-1` (Mumbai).
 | Report PDF routes | 6 public GET routes (api Lambda; same access as their sibling data routes): `/reports/customer-balances-fy/pdf`, `/reports/supplier-balances-fy/pdf`, `/reports/monthly-sales/pdf`, `/reports/monthly-collection/pdf`, `/ledger/statement/pdf`, `/supplier-ledger/statement/pdf`; api Lambda now carries a second layer, `alerts_evaluator_deps` (reportlab), reused as-is — no new layer/CI build |
 | Stock Expiry routes | 2 public GET routes (api Lambda, explicit per-path like all other routes — no `$default` catch-all): `GET /stocks/expiry`, `GET /stocks/expiry/pdf`; `snapshot_stock` gained an `expiry_date DATE` column that is now part of its uni-temporal natural key (migration 049), RBAC screen `stocks.expiry` seeded by migration 050 |
 | Sales/Purchases/Aging/PDC PDF + Issued PDC routes | 6 public GET routes added to the api Lambda (same explicit per-path pattern, no `$default` catch-all, no CORS change — existing `cors_configuration` already covers GET): `GET /sales/pdf`, `GET /purchases/pdf`, `GET /reports/customer-aging/pdf`, `GET /reports/supplier-aging/pdf`, `GET /pdc`, `GET /pdc/pdf`; `/pdc*` read from the `procurement.*` schema via the same DB secret/credentials as the main api Lambda (see Task 3 confirmation below); RBAC screen `suppliers.issued_pdc` seeded by migration 051 |
+| Borrowings Lambda + routes | `iravi-dashboard-etl-borrowings` — Python 3.12, 512 MB, 300 s, own layer (openpyxl/psycopg2, same per-Lambda-own-layer pattern as `etl_stocks`/`etl_customer_ledger`/`etl_appendix_b_x11`); triggered by the shared S3 bucket notification on `raw/Borrowings*.xlsx`; upserts `borrowings` table (uni-temporal, natural key `(transaction_date, voucher_no, account)`); 2 public GET routes on the api Lambda: `GET /borrowings/meta`, `GET /borrowings`; RBAC screen `finances.borrowings` seeded by migration 053 (sort_order 96) |
 | Supplier Ledger Lambda | `iravi-dashboard-etl-supplier-ledger` — Python 3.12, 512 MB, 300 s, own layer (openpyxl/psycopg2); triggered by EventBridge "Object Created" rule on `raw/Ledger` prefix; read-only S3 IAM (GetObject + ListBucket, no Put/Delete); upserts `supplier_ledger` table with uni-temporal milestoning; `eventbridge = true` added to the shared S3 bucket notification to enable this flow |
 | CI/CD | GitHub Actions — fmt + validate on PR (Stage 1); plan + apply coming after AWS account setup |
 | Diagram (SVG) | `design/system-architecture-diagram.html` — dark-theme SVG across all four repos; Alerts subsystem added (cron, evaluator, SES, recipients); DB tables 013–014; API routes; git-ignored, local only |
@@ -180,7 +181,9 @@ IaC/
 │       ├── 019_add_monthly_sales_screen.sql        ← idempotent app_screens seed for 'reports.monthly_sales' (applied)
 │       ├── 049_add_expiry_date_to_snapshot_stock.sql ← adds expiry_date to snapshot_stock's natural key (Stock Expiry page)
 │       ├── 050_add_stock_expiry_screen.sql           ← idempotent app_screens seed for 'stocks.expiry' (sort_order 41)
-│       └── 051_add_issued_pdc_screen.sql             ← idempotent app_screens seed for 'suppliers.issued_pdc' (sort_order 95)
+│       ├── 051_add_issued_pdc_screen.sql             ← idempotent app_screens seed for 'suppliers.issued_pdc' (sort_order 95)
+│       ├── 052_create_borrowings.sql                 ← creates borrowings (uni-temporal, mirrors supplier_ledger)
+│       └── 053_add_borrowings_screen.sql             ← idempotent app_screens seed for 'finances.borrowings' (sort_order 96)
 └── terraform/
     ├── bootstrap/                  ← Run ONCE first — creates remote state storage
     │   └── main.tf
@@ -202,6 +205,7 @@ IaC/
             ├── lambda_etl_sales.tf          ← ETL sales Lambda + SHARED S3 bucket notification (fans out to all 11 S3-triggered Lambdas by prefix; eventbridge = true)
             ├── lambda_etl_supplier_accounts.tf  ← Supplier accounts ETL Lambda (trigger: raw/Supplier*.xlsx; own pip layer)
             ├── lambda_etl_supplier_ledger.tf ← Supplier ledger ETL Lambda (EventBridge on raw/Ledger; read-only S3)
+            ├── lambda_etl_borrowings.tf     ← Borrowings ETL Lambda (trigger: raw/Borrowings*.xlsx; own pip layer w/ openpyxl)
             ├── lambda_etl_stocks.tf         ← Stock balance ETL Lambda
             ├── lambda_etl_customer_ledger.tf← Customer ledger ETL Lambda (trigger: raw/Ledger*.xlsx)
             ├── lambda_etl_customer_accounts.tf ← Customer accounts ETL Lambda (trigger: raw/Customer*.xlsx)
@@ -543,6 +547,37 @@ psql "host=localhost port=5432 dbname=iravi_dashboard user=dashboard_admin passw
 ```
 After applying, an admin must map the `suppliers.issued_pdc` screen to the appropriate roles via
 the Access Control screen in the dashboard UI.
+
+**Migration 052 — `borrowings` table:**
+Creates the `borrowings` table for the investor/partner borrow-repay ledger (`debit` = firm repays
+investor, `credit` = firm borrows from investor). Uni-temporal milestoned (BIGSERIAL PK, natural
+key `(transaction_date, voucher_no, account)`, `in_z`/`out_z`), modelled on
+`017_create_supplier_ledger.sql`. Partial unique index `uix_borrowings_active` enforces one active
+row per natural key (`WHERE out_z IS NULL`); `idx_borrowings_account_date` and `idx_borrowings_date`
+support the statement and range queries. Fully idempotent (`CREATE TABLE/INDEX IF NOT EXISTS`).
+Apply AFTER `terraform apply` has provisioned `lambda_etl_borrowings.tf` and the new
+`GET /borrowings*` API routes, AND after business-core has pushed `lambda/etl_borrowings/`. Apply
+over the SSM tunnel:
+```bash
+psql "host=localhost port=5432 dbname=iravi_dashboard user=dashboard_admin password='<password>' sslmode=require" \
+     -f db/migrations/052_create_borrowings.sql
+```
+
+**Migration 053 — `app_screens` seed for Borrowings:**
+Idempotently inserts screen key `finances.borrowings` (label "Borrowings", sort_order 96) into
+`app_screens` using `ON CONFLICT (screen_key) DO NOTHING`. See the migration file's header comment
+for why 96 was chosen — the requested placement ("after all suppliers.*/supplier screens and
+before the reports.* screens") has no integer gap in the existing seed data (the last supplier
+screen, `suppliers.issued_pdc`, is already at 95, immediately followed by
+`reports.net_working_capital` at 96), so this seed ties with `reports.net_working_capital` rather
+than renumbering any existing screen. Apply AFTER migration 052 and after the
+`GET /borrowings` / `GET /borrowings/meta` routes/handlers are live:
+```bash
+psql "host=localhost port=5432 dbname=iravi_dashboard user=dashboard_admin password='<password>' sslmode=require" \
+     -f db/migrations/053_add_borrowings_screen.sql
+```
+After applying, an admin must map the `finances.borrowings` screen to the appropriate roles via the
+Access Control screen in the dashboard UI.
 
 ---
 

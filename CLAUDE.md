@@ -83,7 +83,12 @@ D:\Projects\Iravi\
 │   │       ├── 045_seed_supplier_companies_from_pos.sql               ← idempotent upsert of 14 companies extracted from the IAL PO PDFs
 │   │       ├── 046_seed_packaging_config_from_stock.sql               ← 3-table seed (technicals + packaging_meta + packagings) from Opening Stock 20-Jul-2026.pdf
 │   │       ├── 047_add_net_working_capital_screen.sql                 ← seeds reports.net_working_capital screen (sort_order 96)
-│   │       └── 048_add_financial_flow_screen.sql                      ← seeds reports.financial_flow screen (sort_order 97)
+│   │       ├── 048_add_financial_flow_screen.sql                      ← seeds reports.financial_flow screen (sort_order 97)
+│   │       ├── 049_add_expiry_date_to_snapshot_stock.sql              ← snapshot_stock.expiry_date + reworked uix_stock_active
+│   │       ├── 050_add_stock_expiry_screen.sql                        ← seeds stocks.expiry screen (sort_order 41)
+│   │       ├── 051_add_issued_pdc_screen.sql                          ← seeds suppliers.issued_pdc screen (sort_order 95)
+│   │       ├── 052_create_borrowings.sql                              ← creates borrowings table (uni-temporal, mirrors supplier_ledger)
+│   │       └── 053_add_borrowings_screen.sql                          ← seeds finances.borrowings screen (sort_order 96 — ties with reports.net_working_capital, see migration comment: no integer gap exists between the suppliers cluster and the reports cluster)
 │   ├── design/                               ← git-ignored (local only)
 │   │   ├── stakeholder-presentation.html
 │   │   ├── system-architecture-diagram.html  ← dark SVG, full four-repo diagram (updated 2026-06-25: alerts, SES, mig 013-014, new API routes)
@@ -121,9 +126,10 @@ D:\Projects\Iravi\
 │               ├── lambda_etl_appendix_b_x11_sale_return.tf     ← AppendixRetSales
 │               ├── lambda_etl_supplier_accounts.tf ← Supplier Accounts ETL Lambda (raw/Supplier)
 │               ├── lambda_etl_supplier_ledger.tf ← Supplier Ledger ETL Lambda (EventBridge trigger on raw/Ledger; read-only S3; upserts supplier_ledger; same source file as etl_customer_ledger but different rows)
+│               ├── lambda_etl_borrowings.tf ← Borrowings ETL Lambda (raw/Borrowings, own openpyxl layer, upserts borrowings)
 │               ├── lambda_whatsapp_notifier.tf ← WhatsApp notifier Lambda (notifications/pending/*.html)
 │               ├── lambda_redis_updater.tf ← Redis Updater + EventBridge trigger
-│               ├── lambda_api.tf       ← API Lambda + API Gateway HTTP API; RBAC /auth/* + /admin/* routes (incl. POST /admin/cache/flush); CORS GET/POST/PUT/DELETE; GET /reports/customer-balances-fy route added (migration 010); GET /reports/supplier-balances-fy route added (migration 018); GET /reports/monthly-sales route added (migration 019); alerts CRUD routes added to api_rbac_routes (admin-only); api Lambda layers = [api_deps, alerts_evaluator_deps (reportlab, reused)] + 6 public report-PDF routes (`/reports/customer-balances-fy/pdf`, `/reports/supplier-balances-fy/pdf`, `/reports/monthly-sales/pdf`, `/reports/monthly-collection/pdf`, `/ledger/statement/pdf`, `/supplier-ledger/statement/pdf`)
+│               ├── lambda_api.tf       ← API Lambda + API Gateway HTTP API; RBAC /auth/* + /admin/* routes (incl. POST /admin/cache/flush); CORS GET/POST/PUT/DELETE; GET /reports/customer-balances-fy route added (migration 010); GET /reports/supplier-balances-fy route added (migration 018); GET /reports/monthly-sales route added (migration 019); alerts CRUD routes added to api_rbac_routes (admin-only); api Lambda layers = [api_deps, alerts_evaluator_deps (reportlab, reused)] + 6 public report-PDF routes (`/reports/customer-balances-fy/pdf`, `/reports/supplier-balances-fy/pdf`, `/reports/monthly-sales/pdf`, `/reports/monthly-collection/pdf`, `/ledger/statement/pdf`, `/supplier-ledger/statement/pdf`); GET /borrowings/meta + GET /borrowings routes added (migration 052/053, public/non-admin like /ledger)
 │               ├── ses.tf              ← SES domain identity + DKIM for alerts emails (alerts_domain var); outputs verification token + DKIM CNAMEs
 │               ├── lambda_alerts_evaluator.tf ← Alerts Evaluator Lambda + EventBridge rate(15 min); layers: api_deps (psycopg2) + alerts_evaluator_deps (reportlab — PDF for Monthly Sales email); env: DB_SECRET_ARN, ALERTS_SENDER_EMAIL; IAM: GetSecretValue + ses:SendEmail/SendRawEmail
 │               └── amplify.tf          ← Amplify app env vars (VITE_API_BASE_URL only — dashboard creds removed; now BOOTSTRAP_ADMIN_* on the API Lambda); ONE-TIME import required before first apply
@@ -354,6 +360,7 @@ Do NOT use `null_resource` + `local-exec` provisioner to run pip install inside 
 - `etl_customer_ledger` → `.lambda_layers/etl_customer_ledger/python/`
 - `etl_supplier_accounts` → `.lambda_layers/etl_supplier_accounts/python/`
 - `etl_supplier_ledger` → `.lambda_layers/etl_supplier_ledger/python/`
+- `etl_borrowings` → `.lambda_layers/etl_borrowings/python/` — own dedicated layer (same pattern as `etl_stocks`/`etl_customer_ledger`/`etl_appendix_b_x11`; built from `business-core/lambda/etl_borrowings/requirements.txt`, includes `openpyxl` since the Borrowings source file is a real binary xlsx)
 - `alerts_evaluator_deps` → `.lambda_layers/alerts_evaluator_deps/python/` — `reportlab` (PDF generation for Monthly Sales email attachments); **alerts_evaluator-specific**, not merged into `api_deps`
 
 The step creates the directory with Linux-compatible wheels; Terraform's `archive_file` zips it normally. When adding a new Lambda with a layer, add the corresponding pip install step to both plan and apply jobs in `.github/workflows/terraform.yml`.
@@ -458,6 +465,61 @@ Expense Tracker / Finance Overview) was superseded; Expenses remains a phase 3+ 
 ---
 
 ## What Is Built
+
+- [x] **DB migrations 052/053 + `lambda_etl_borrowings.tf` + `lambda_api.tf` routes — Borrowings
+  (2026-08-05):** New investor/partner borrow-repay ledger. `052_create_borrowings.sql` creates
+  `borrowings` (BIGSERIAL PK; `transaction_date`, `voucher_no`, `transaction_name`, `account`,
+  `debit` NUMERIC(18,2) — repayment FROM firm TO investor, `credit` NUMERIC(18,2) — money received
+  BY firm FROM investor; uni-temporal `in_z`/`out_z`), modelled on
+  `017_create_supplier_ledger.sql`'s DDL/index style; natural key `(transaction_date, voucher_no,
+  account)`; partial unique index `uix_borrowings_active` (`WHERE out_z IS NULL`) plus
+  `idx_borrowings_account_date` (account + date, for the per-account statement query) and
+  `idx_borrowings_date` (range query) — both filtered to current rows. `db/schema.sql` updated in
+  the same section as `customer_ledger`/`supplier_ledger`. `053_add_borrowings_screen.sql` seeds
+  RBAC screen `finances.borrowings` (label "Borrowings"), same idempotent
+  `ON CONFLICT (screen_key) DO NOTHING` shape as 010/018/019/020/021/047/048/050/051; no role grant
+  (matches every prior screen-seed migration — Administrator sees all screens via `is_admin=TRUE`,
+  not an `app_role_screens` row). **sort_order note:** the request was "after all
+  suppliers.*/supplier screens and before the reports.* screens", but the existing seeded values
+  interleave the two groups (`reports.supplier_balances_fy`=91 and
+  `reports.supplier_ledger_statement`=94 already sit inside the 93–95 supplier-screen run, and
+  `reports.monthly_collection`=95 already ties with `suppliers.issued_pdc`=95) — there is no
+  integer gap between the last supplier screen (`suppliers.issued_pdc`=95) and the next screen
+  (`reports.net_working_capital`=96). Per instructions, no existing screen was renumbered;
+  `finances.borrowings` was seeded at **sort_order 96**, tying with
+  `reports.net_working_capital` (this table already tolerates duplicate sort_order values — see
+  95 above). A future renumbering pass (re-seeding all `app_screens.sort_order` in steps of 10)
+  would be needed for a clean, gap-free ordering — flagged for the requester, not executed here.
+  **`lambda_etl_borrowings.tf`** (new file) copies `lambda_etl_customer_ledger.tf`'s shape: own
+  IAM role/policy (S3 get/put/delete + list on the data bucket, Secrets Manager `GetSecretValue`,
+  `events:PutEvents`, VPC networking, CloudWatch Logs), own dedicated dependency layer built from
+  `business-core/lambda/etl_borrowings/requirements.txt` (same per-Lambda-own-layer pattern as
+  `etl_stocks`/`etl_appendix_b_x11`/`etl_customer_ledger` — includes `openpyxl` since the source
+  file is a real binary xlsx; added a new "Build etl_borrowings layer" CI step to **both** the
+  `plan` and `apply` jobs in `.github/workflows/terraform.yml`, mirroring the `etl_supplier_ledger`
+  step exactly), 300 s timeout / 512 MB memory (matches `etl_customer_ledger`, not the smaller
+  `etl_appendix_b_x11`). Added one `lambda_function {}` block to the existing
+  `aws_s3_bucket_notification.etl_trigger` in `lambda_etl_sales.tf` — `filter_prefix =
+  "raw/Borrowings"`, `filter_suffix = ".xlsx"` (confirmed no overlap with any existing prefix: RGF
+  Sales Book, StockReport, Ledger, Customer, Barcodes, AppendixPurchase, AppendixPurReturn,
+  AppendixSale, AppendixRetSales, Supplier, notifications/pending/) — and added
+  `aws_lambda_permission.s3_invoke_etl_borrowings` to that resource's `depends_on` list. Did **not**
+  create a second `aws_s3_bucket_notification` (one per bucket max). **`lambda_api.tf`:** added two
+  `aws_apigatewayv2_route` resources (`borrowings_meta` → `GET /borrowings/meta`, `borrowings` →
+  `GET /borrowings`), grouped after `pdc_pdf` and before `notify`, exact same
+  `aws_apigatewayv2_integration.api_lambda` target as every other per-path route; **not** added to
+  `api_rbac_routes` — public/non-admin GET, matching the `/ledger`, `/ledger/range` sibling routes
+  it was modelled on. `terraform fmt` clean (no diff on the 3 changed .tf files).
+  `terraform validate` passed against the pre-existing `.terraform` init in this working directory
+  (after creating an empty `.lambda_layers/etl_borrowings/python/.keep` placeholder locally, same
+  as the other per-Lambda layers already had — `.lambda_layers/` is git-ignored so this is scratch
+  state, not committed). **`terraform plan`/`apply` intentionally NOT run** — apply happens via the
+  GitHub Actions pipeline; business-core's `business-core/lambda/etl_borrowings/` (handler.py +
+  requirements.txt) already exists on disk from the parallel business-core agent run, so
+  `terraform validate`'s `archive_file` source-path check for the Lambda **function** code passed
+  too. **NOT yet applied to AWS** — apply migration 052 → 053 via psql over the SSM tunnel after
+  `terraform apply` provisions `lambda_etl_borrowings.tf` and the new API routes; admins then grant
+  `finances.borrowings` to roles in Access Control.
 
 - [x] **DB migration 051 + `lambda_api.tf` routes — 6 new PDF/PDC endpoints, Issued PDC screen
   (2026-08-05):** business-core added 6 new GET endpoints to the main `api` Lambda handler:

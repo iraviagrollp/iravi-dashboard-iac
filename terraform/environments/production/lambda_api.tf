@@ -403,6 +403,18 @@ resource "aws_apigatewayv2_route" "pdc_pdf" {
   target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
 }
 
+resource "aws_apigatewayv2_route" "borrowings_meta" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "GET /borrowings/meta"
+  target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "borrowings" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "GET /borrowings"
+  target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
+}
+
 resource "aws_apigatewayv2_route" "notify" {
   api_id    = aws_apigatewayv2_api.main.id
   route_key = "POST /notify"
