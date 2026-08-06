@@ -421,6 +421,18 @@ resource "aws_apigatewayv2_route" "borrowings_pdf" {
   target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
 }
 
+resource "aws_apigatewayv2_route" "borrowings_summary_fy" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "GET /borrowings/summary-fy"
+  target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "borrowings_summary_fy_pdf" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "GET /borrowings/summary-fy/pdf"
+  target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
+}
+
 resource "aws_apigatewayv2_route" "notify" {
   api_id    = aws_apigatewayv2_api.main.id
   route_key = "POST /notify"
