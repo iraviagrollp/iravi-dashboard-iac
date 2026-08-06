@@ -129,7 +129,7 @@ D:\Projects\Iravi\
 │               ├── lambda_etl_borrowings.tf ← Borrowings ETL Lambda (raw/Borrowings, own openpyxl layer, upserts borrowings)
 │               ├── lambda_whatsapp_notifier.tf ← WhatsApp notifier Lambda (notifications/pending/*.html)
 │               ├── lambda_redis_updater.tf ← Redis Updater + EventBridge trigger
-│               ├── lambda_api.tf       ← API Lambda + API Gateway HTTP API; RBAC /auth/* + /admin/* routes (incl. POST /admin/cache/flush); CORS GET/POST/PUT/DELETE; GET /reports/customer-balances-fy route added (migration 010); GET /reports/supplier-balances-fy route added (migration 018); GET /reports/monthly-sales route added (migration 019); alerts CRUD routes added to api_rbac_routes (admin-only); api Lambda layers = [api_deps, alerts_evaluator_deps (reportlab, reused)] + 6 public report-PDF routes (`/reports/customer-balances-fy/pdf`, `/reports/supplier-balances-fy/pdf`, `/reports/monthly-sales/pdf`, `/reports/monthly-collection/pdf`, `/ledger/statement/pdf`, `/supplier-ledger/statement/pdf`); GET /borrowings/meta + GET /borrowings + GET /borrowings/pdf routes added (migration 052/053, public/non-admin like /ledger and /ledger/statement/pdf)
+│               ├── lambda_api.tf       ← API Lambda + API Gateway HTTP API; RBAC /auth/* + /admin/* routes (incl. POST /admin/cache/flush); CORS GET/POST/PUT/DELETE; GET /reports/customer-balances-fy route added (migration 010); GET /reports/supplier-balances-fy route added (migration 018); GET /reports/monthly-sales route added (migration 019); alerts CRUD routes added to api_rbac_routes (admin-only); api Lambda layers = [api_deps, alerts_evaluator_deps (reportlab, reused)] + 6 public report-PDF routes (`/reports/customer-balances-fy/pdf`, `/reports/supplier-balances-fy/pdf`, `/reports/monthly-sales/pdf`, `/reports/monthly-collection/pdf`, `/ledger/statement/pdf`, `/supplier-ledger/statement/pdf`); GET /borrowings/meta + GET /borrowings + GET /borrowings/pdf routes added (migration 052/053, public/non-admin like /ledger and /ledger/statement/pdf); GET /borrowings/summary-fy + GET /borrowings/summary-fy/pdf routes added (2026-08-06, public/non-admin, same posture as their borrowings/* siblings)
 │               ├── ses.tf              ← SES domain identity + DKIM for alerts emails (alerts_domain var); outputs verification token + DKIM CNAMEs
 │               ├── lambda_alerts_evaluator.tf ← Alerts Evaluator Lambda + EventBridge rate(15 min); layers: api_deps (psycopg2) + alerts_evaluator_deps (reportlab — PDF for Monthly Sales email); env: DB_SECRET_ARN, ALERTS_SENDER_EMAIL; IAM: GetSecretValue + ses:SendEmail/SendRawEmail
 │               └── amplify.tf          ← Amplify app env vars (VITE_API_BASE_URL only — dashboard creds removed; now BOOTSTRAP_ADMIN_* on the API Lambda); ONE-TIME import required before first apply
@@ -465,6 +465,31 @@ Expense Tracker / Finance Overview) was superseded; Expenses remains a phase 3+ 
 ---
 
 ## What Is Built
+
+- [x] **`lambda_api.tf` — `GET /borrowings/summary-fy` + `GET /borrowings/summary-fy/pdf` routes
+  (2026-08-06):** business-core added two new routes to the existing `api` Lambda handler for the
+  Borrowings feature — an all-accounts, all-FY borrowings summary matrix (JSON, `?include_interest=0|1`)
+  and the same report rendered as a landscape A4 PDF (`?include_interest=0|1`). Added
+  `aws_apigatewayv2_route.borrowings_summary_fy` (`GET /borrowings/summary-fy`) and
+  `aws_apigatewayv2_route.borrowings_summary_fy_pdf` (`GET /borrowings/summary-fy/pdf`) immediately
+  after `aws_apigatewayv2_route.borrowings_pdf`, exact same shape as every neighbouring route (same
+  `aws_apigatewayv2_integration.api_lambda` target, no extra arguments). No new Lambda, no new
+  integration, no new IAM, no new migration, no new RBAC screen — both served by the existing `api`
+  Lambda, which already carries the `alerts_evaluator_deps` (reportlab) layer needed for PDF
+  rendering. Not added to `api_rbac_routes` — matched the exact authorization posture of their three
+  existing `borrowings*` siblings (`borrowings_meta`, `borrowings`, `borrowings_pdf`), all
+  deliberately public/non-admin GET routes, same as `/ledger` and `/ledger/statement/pdf`. Checked
+  for any other per-route list that would also need updating: routes in this file are declared as
+  individual `aws_apigatewayv2_route` resources (no `for_each`/route-inventory local — the only
+  `for_each` in the file is `api_rbac_routes`, which these routes are intentionally excluded from);
+  CORS is a single static `cors_configuration` block (`allow_methods = ["GET", "POST", "PUT",
+  "DELETE", "OPTIONS"]`, origin `https://dashboard.iraviagrolife.com`) that already covers GET —
+  nothing to add there either. `terraform fmt` — no diff. `terraform validate` — `Success! The
+  configuration is valid.` (against the pre-existing `.terraform` init already in this working
+  directory). `terraform plan`/`apply` intentionally NOT run (per task scope) — apply happens via
+  the GitHub Actions pipeline once business-core's handler code for these two routes is confirmed
+  pushed (Terraform's `archive_file` zips `business-core/lambda/api/` as-is, so the new handler
+  code ships automatically once present).
 
 - [x] **`lambda_api.tf` — `GET /borrowings/pdf` route (2026-08-05):** business-core added a
   server-rendered PDF export for the Borrowings screen in parallel. Added
